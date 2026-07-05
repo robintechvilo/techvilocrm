@@ -23,6 +23,14 @@ export function canControl(entity: Owned, user: (WithRole & WithId)): boolean {
   return isAdminOrManager(user) || isOwner(entity, user)
 }
 
+// Invoice access: Admin/Manager always; Staff only when the admin has
+// switched on their per-user toggle (profiles.can_create_invoices).
+export function canCreateInvoices(
+  user: (WithRole & { can_create_invoices?: boolean | null }) | null | undefined,
+): boolean {
+  return isAdminOrManager(user) || !!user?.can_create_invoices
+}
+
 export function getOwnerName(
   entity: Owned,
   users: Array<{ id: string; name?: string | null }>,

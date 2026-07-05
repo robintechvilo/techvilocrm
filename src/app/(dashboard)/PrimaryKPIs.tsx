@@ -74,7 +74,7 @@ export function PrimaryKPIs({
           value={`৳ ${totalDue.toLocaleString()}`}
           icon={CreditCard}
           tone="rose"
-          subline={`${pendingInvoices} invoices pending`}
+          subline={`${pendingInvoices} projects with due`}
         />
         {isStaffView && (
           <KpiCard

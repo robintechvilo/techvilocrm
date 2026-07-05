@@ -8,15 +8,16 @@ export default async function SettingsPage() {
   
   if (!currentUser) return null
 
-  const { data: profiles = [] } = await supabase
-    .from('profiles')
-    .select('*')
-    .order('name', { ascending: true })
+  const [{ data: profiles = [] }, companyRes] = await Promise.all([
+    supabase.from('profiles').select('*').order('name', { ascending: true }),
+    supabase.from('company_settings').select('*').eq('id', 1).single(),
+  ])
 
   return (
-    <SettingsClient 
-      users={profiles || []} 
-      currentUser={currentUser} 
+    <SettingsClient
+      users={profiles || []}
+      currentUser={currentUser}
+      companySettings={companyRes.data || null}
     />
   )
 }

@@ -15,6 +15,8 @@ type Props = {
   clients: any[]
   projects: any[]
   ledgers: any[]
+  adSupport?: any[]
+  invoices?: any[]
   isStaffView?: boolean
   currentUserId?: string
 }
@@ -25,7 +27,16 @@ function daysBetween(dateStr: string, ref: Date = new Date()): number {
   return Math.floor((ref.getTime() - d.getTime()) / (1000 * 60 * 60 * 24))
 }
 
-export function ActionCenter({ clients, projects, ledgers, isStaffView, currentUserId }: Props) {
+type ActionItem = {
+  title: string
+  sub: string
+  amount: number
+  meta: string
+  href: string
+  days: number
+}
+
+export function ActionCenter({ clients, projects, ledgers, adSupport = [], invoices = [], isStaffView, currentUserId }: Props) {
   const today = new Date()
   today.setHours(0, 0, 0, 0)
   const weekFromNow = new Date(today)
@@ -38,35 +49,106 @@ export function ActionCenter({ clients, projects, ledgers, isStaffView, currentU
   const scopedClients = isStaffView && currentUserId
     ? clients.filter((c) => c.created_by === currentUserId)
     : clients
+  const scopedAdSupport = isStaffView && currentUserId
+    ? adSupport.filter((a) => a.created_by === currentUserId)
+    : adSupport
+  const scopedInvoices = isStaffView && currentUserId
+    ? invoices.filter((i) => i.created_by === currentUserId)
+    : invoices
 
-  // 1. OVERDUE — projects with next_payment_date in past and due > 0
-  const overdue = scopedProjects
-    .filter((p) => {
-      if (!p.next_payment_date || Number(p.due_amount) <= 0) return false
-      const d = new Date(p.next_payment_date)
-      return !Number.isNaN(d.getTime()) && d < today
-    })
-    .map((p) => ({
-      ...p,
-      client: clients.find((c) => c.id === p.client_id),
-      daysOverdue: daysBetween(p.next_payment_date, today),
-    }))
-    .sort((a, b) => b.daysOverdue - a.daysOverdue)
+  const companyOf = (clientId: string) =>
+    clients.find((c) => c.id === clientId)?.company || "Unknown"
 
-  // 2. UPCOMING — next_payment_date within next 7 days
-  const upcoming = scopedProjects
-    .filter((p) => {
-      if (!p.next_payment_date || Number(p.due_amount) <= 0) return false
-      const d = new Date(p.next_payment_date)
-      if (Number.isNaN(d.getTime())) return false
-      return d >= today && d <= weekFromNow
-    })
-    .map((p) => ({
-      ...p,
-      client: clients.find((c) => c.id === p.client_id),
-      daysUntil: Math.max(0, Math.ceil((new Date(p.next_payment_date).getTime() - today.getTime()) / (1000 * 60 * 60 * 24))),
-    }))
-    .sort((a, b) => a.daysUntil - b.daysUntil)
+  // Recurring projects with monthly bills are tracked bill-by-bill below —
+  // keep them out of the project-date lists so they don't double-report.
+  const billedProjectIds = new Set(scopedInvoices.map((i) => i.project_id))
+
+  const parseDate = (s: string | null | undefined) => {
+    if (!s) return null
+    const d = new Date(s)
+    return Number.isNaN(d.getTime()) ? null : d
+  }
+  const daysUntil = (d: Date) =>
+    Math.max(0, Math.ceil((d.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)))
+  const billRemaining = (i: any) =>
+    Math.max(0, (Number(i.amount) || 0) - (Number(i.paid_amount) || 0))
+
+  const overdueItems: ActionItem[] = []
+  const upcomingItems: ActionItem[] = []
+
+  // 1a. Projects (one-time / un-billed) — next_payment_date based
+  for (const p of scopedProjects) {
+    if (billedProjectIds.has(p.id)) continue
+    if (Number(p.due_amount) <= 0) continue
+    const d = parseDate(p.next_payment_date)
+    if (!d) continue
+    if (d < today) {
+      const days = daysBetween(p.next_payment_date, today)
+      overdueItems.push({
+        title: companyOf(p.client_id), sub: p.name,
+        amount: Number(p.due_amount) || 0, meta: `${days}d overdue`,
+        href: `/clients/${p.client_id}`, days,
+      })
+    } else if (d <= weekFromNow) {
+      const days = daysUntil(d)
+      upcomingItems.push({
+        title: companyOf(p.client_id), sub: p.name,
+        amount: Number(p.due_amount) || 0, meta: days === 0 ? "Today" : `in ${days}d`,
+        href: `/clients/${p.client_id}`, days,
+      })
+    }
+  }
+
+  // 1b. Monthly bills — due_date based (recurring projects)
+  for (const inv of scopedInvoices) {
+    if (inv.status !== "Due" && inv.status !== "Partial") continue
+    if (billRemaining(inv) <= 0) continue
+    const d = parseDate(inv.due_date)
+    if (!d) continue
+    const project = projects.find((p) => p.id === inv.project_id)
+    const sub = `${inv.billing_month} bill${project ? ` · ${project.name}` : ""}`
+    if (d < today) {
+      const days = daysBetween(inv.due_date, today)
+      overdueItems.push({
+        title: companyOf(inv.client_id), sub,
+        amount: billRemaining(inv), meta: `${days}d overdue`,
+        href: "/payments", days,
+      })
+    } else if (d <= weekFromNow) {
+      const days = daysUntil(d)
+      upcomingItems.push({
+        title: companyOf(inv.client_id), sub,
+        amount: billRemaining(inv), meta: days === 0 ? "Today" : `in ${days}d`,
+        href: "/payments", days,
+      })
+    }
+  }
+
+  // 1c. Ad support follow-ups — next_payment_date based
+  for (const a of scopedAdSupport) {
+    if (Number(a.due_amount) <= 0) continue
+    const d = parseDate(a.next_payment_date)
+    if (!d) continue
+    const sub = a.description || `Ad support — $${(Number(a.dollar_amount) || 0).toLocaleString()}`
+    if (d < today) {
+      const days = daysBetween(a.next_payment_date, today)
+      overdueItems.push({
+        title: companyOf(a.client_id), sub,
+        amount: Number(a.due_amount) || 0, meta: `${days}d overdue`,
+        href: "/ad-support", days,
+      })
+    } else if (d <= weekFromNow) {
+      const days = daysUntil(d)
+      upcomingItems.push({
+        title: companyOf(a.client_id), sub,
+        amount: Number(a.due_amount) || 0, meta: days === 0 ? "Today" : `in ${days}d`,
+        href: "/ad-support", days,
+      })
+    }
+  }
+
+  const overdue = overdueItems.sort((a, b) => b.days - a.days)
+  const upcoming = upcomingItems.sort((a, b) => a.days - b.days)
 
   // 3. STALE LEADS — Lead status > 30 days old
   const stale = scopedClients
@@ -116,15 +198,15 @@ export function ActionCenter({ clients, projects, ledgers, isStaffView, currentU
           title="Overdue"
           icon={AlertTriangle}
           count={overdue.length}
-          subtitle="Past due date"
-          items={overdue.slice(0, 4).map((p) => ({
-            title: p.client?.company || "Unknown",
-            sub: p.name,
-            amount: `৳${(Number(p.due_amount) || 0).toLocaleString()}`,
-            meta: `${p.daysOverdue}d overdue`,
-            href: `/clients/${p.client_id}`,
+          subtitle="Projects, bills & ad support"
+          items={overdue.slice(0, 4).map((it) => ({
+            title: it.title,
+            sub: it.sub,
+            amount: `৳${it.amount.toLocaleString()}`,
+            meta: it.meta,
+            href: it.href,
           }))}
-          totalAmount={overdue.reduce((s, p) => s + (Number(p.due_amount) || 0), 0)}
+          totalAmount={overdue.reduce((s, it) => s + it.amount, 0)}
           ctaHref="/payments"
           ctaLabel="Collect now"
         />
@@ -135,14 +217,14 @@ export function ActionCenter({ clients, projects, ledgers, isStaffView, currentU
           icon={Clock}
           count={upcoming.length}
           subtitle="Within 7 days"
-          items={upcoming.slice(0, 4).map((p) => ({
-            title: p.client?.company || "Unknown",
-            sub: p.name,
-            amount: `৳${(Number(p.due_amount) || 0).toLocaleString()}`,
-            meta: p.daysUntil === 0 ? "Today" : `in ${p.daysUntil}d`,
-            href: `/clients/${p.client_id}`,
+          items={upcoming.slice(0, 4).map((it) => ({
+            title: it.title,
+            sub: it.sub,
+            amount: `৳${it.amount.toLocaleString()}`,
+            meta: it.meta,
+            href: it.href,
           }))}
-          totalAmount={upcoming.reduce((s, p) => s + (Number(p.due_amount) || 0), 0)}
+          totalAmount={upcoming.reduce((s, it) => s + it.amount, 0)}
           ctaHref="/payments"
           ctaLabel="View ledger"
         />

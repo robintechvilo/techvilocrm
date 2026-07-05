@@ -48,18 +48,22 @@ export function RecentActivity({ ledgers, expenses, adSupport, clients, projects
       meta: null,
     }))
 
-    const ad = adSupport.map((a) => {
-      const client = clients.find((c) => c.id === a.client_id)
-      return {
-        type: "ad" as const,
-        id: `ad-${a.id}`,
-        date: a.date || a.created_at?.split("T")[0],
-        title: a.description || `Ad support — $${Number(a.dollar_amount).toLocaleString()}`,
-        subtitle: client?.company || "—",
-        amount: Number(a.total_bdt) || 0,
-        meta: `$${Number(a.dollar_amount).toLocaleString()}`,
-      }
-    })
+    // Only money actually collected counts as activity income — showing
+    // total_bdt made unpaid funding look like received revenue.
+    const ad = adSupport
+      .filter((a) => (Number(a.paid_amount) || 0) > 0)
+      .map((a) => {
+        const client = clients.find((c) => c.id === a.client_id)
+        return {
+          type: "ad" as const,
+          id: `ad-${a.id}`,
+          date: a.date || a.created_at?.split("T")[0],
+          title: a.description || `Ad support — $${Number(a.dollar_amount).toLocaleString()}`,
+          subtitle: client?.company || "—",
+          amount: Number(a.paid_amount) || 0,
+          meta: `$${Number(a.dollar_amount).toLocaleString()}`,
+        }
+      })
 
     const merged = [...income, ...exp, ...ad].sort(
       (a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime(),

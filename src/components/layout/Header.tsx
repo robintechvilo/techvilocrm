@@ -19,16 +19,19 @@ import { getInitials } from "@/lib/utils"
 import { logout } from "@/app/actions/auth"
 import { Sidebar } from "./Sidebar"
 
+// Same role gating as the Sidebar — Staff shouldn't be offered pages
+// that only show them an Access Denied screen.
 const PAGES = [
-  { name: "Dashboard", href: "/" },
-  { name: "Clients", href: "/clients" },
-  { name: "Pipeline", href: "/clients/pipeline" },
-  { name: "Projects", href: "/projects" },
-  { name: "Payments", href: "/payments" },
-  { name: "Ad Support", href: "/ad-support" },
-  { name: "Expenses", href: "/expenses" },
-  { name: "Team Settings", href: "/settings" },
-  { name: "My Profile", href: "/settings/profile" },
+  { name: "Dashboard", href: "/", roles: ["Admin", "Manager", "Staff"] },
+  { name: "Clients", href: "/clients", roles: ["Admin", "Manager", "Staff"] },
+  { name: "Pipeline", href: "/clients/pipeline", roles: ["Admin", "Manager", "Staff"] },
+  { name: "Projects", href: "/projects", roles: ["Admin", "Manager", "Staff"] },
+  { name: "Payments", href: "/payments", roles: ["Admin", "Manager", "Staff"] },
+  { name: "Ad Support", href: "/ad-support", roles: ["Admin", "Manager", "Staff"] },
+  { name: "Invoices", href: "/invoices", roles: ["Admin", "Manager", "Staff"] },
+  { name: "Expenses", href: "/expenses", roles: ["Admin", "Manager"] },
+  { name: "Team Settings", href: "/settings", roles: ["Admin"] },
+  { name: "My Profile", href: "/settings/profile", roles: ["Admin", "Manager", "Staff"] },
 ]
 
 export function Header({ currentUser }: { currentUser: any }) {
@@ -41,8 +44,13 @@ export function Header({ currentUser }: { currentUser: any }) {
   const results = useMemo(() => {
     const q = query.trim().toLowerCase()
     if (!q) return []
-    return PAGES.filter((p) => p.name.toLowerCase().includes(q))
-  }, [query])
+    const role = currentUser?.role || ""
+    return PAGES.filter((p) => {
+      if (!p.roles.includes(role) || !p.name.toLowerCase().includes(q)) return false
+      if (p.href === "/invoices" && role === "Staff" && !currentUser?.can_create_invoices) return false
+      return true
+    })
+  }, [query, currentUser?.role, currentUser?.can_create_invoices])
 
   useEffect(() => {
     function onClickOutside(e: MouseEvent) {

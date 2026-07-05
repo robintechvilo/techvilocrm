@@ -16,12 +16,13 @@ export default async function DashboardPage() {
 
   if (!currentUser) return null
 
-  const [clientsRes, projectsRes, ledgersRes, expensesRes, adSupportRes] = await Promise.all([
+  const [clientsRes, projectsRes, ledgersRes, expensesRes, adSupportRes, invoicesRes] = await Promise.all([
     supabase.from("clients").select("*").order("created_at", { ascending: false }),
     supabase.from("projects").select("*").order("created_at", { ascending: false }),
     supabase.from("ledgers").select("*").order("created_at", { ascending: false }),
     supabase.from("expenses").select("*").order("date", { ascending: false }),
     supabase.from("ad_support").select("*").order("date", { ascending: false }),
+    supabase.from("invoices").select("*"), // empty until billing migration runs
   ])
 
   const clients = clientsRes.data || []
@@ -29,6 +30,7 @@ export default async function DashboardPage() {
   const ledgers = ledgersRes.data || []
   const expenses = expensesRes.data || []
   const adSupport = adSupportRes.data || []
+  const invoices = invoicesRes.data || []
 
   // ================================
   // STAFF DASHBOARD
@@ -136,6 +138,8 @@ export default async function DashboardPage() {
           clients={clients}
           projects={projects}
           ledgers={ledgers}
+          adSupport={adSupport}
+          invoices={invoices}
           isStaffView
           currentUserId={currentUser.id}
         />
@@ -239,8 +243,11 @@ export default async function DashboardPage() {
   const totalExpenses = expenses.reduce((acc, e) => acc + (Number(e.amount) || 0), 0)
   const netProfit = totalRevenue - totalExpenses
 
-  const totalDue = ledgers.reduce((acc, l) => acc + (Number(l.due_amount) || 0), 0)
-  const pendingInvoices = ledgers.filter((l) => (Number(l.due_amount) || 0) > 0).length
+  // Outstanding due must come from projects (the running totals). Ledger rows
+  // are per-installment snapshots — summing them double-counts whenever a
+  // month is paid in multiple installments.
+  const totalDue = projects.reduce((acc, p) => acc + (Number(p.due_amount) || 0), 0)
+  const pendingInvoices = projects.filter((p) => (Number(p.due_amount) || 0) > 0).length
 
   const activeProjects = projects.filter((p) => p.status === "Active" || p.status === "In Progress").length
   const completedProjects = projects.filter((p) => p.status === "Completed").length
@@ -296,7 +303,7 @@ export default async function DashboardPage() {
         adSupportDue={adSupportDue}
       />
 
-      <ActionCenter clients={clients} projects={projects} ledgers={ledgers} />
+      <ActionCenter clients={clients} projects={projects} ledgers={ledgers} adSupport={adSupport} invoices={invoices} />
 
       <MonthlyReport
         ledgers={ledgers}

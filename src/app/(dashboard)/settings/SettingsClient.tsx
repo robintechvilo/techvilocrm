@@ -9,12 +9,13 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
-import { UserPlus, Shield, UserCog, User, Trash2, AlertTriangle, Key, Eye, EyeOff } from "lucide-react"
+import { UserPlus, Shield, UserCog, User, Trash2, AlertTriangle, Key, Eye, EyeOff, FileText, Building2, Save } from "lucide-react"
 import { toast } from "sonner"
-import { getInitials } from "@/lib/utils"
+import { cn, getInitials } from "@/lib/utils"
 import { updateUserRole, deleteUser, createTeamMember } from "@/app/actions/users"
+import { toggleInvoiceAccess, saveCompanySettings } from "@/app/actions/invoices"
 
-export function SettingsClient({ users, currentUser }: { users: any[], currentUser: any }) {
+export function SettingsClient({ users, currentUser, companySettings }: { users: any[], currentUser: any, companySettings: any }) {
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [editingUser, setEditingUser] = useState<{ id: string; name: string; role: string } | null>(null)
   const [editRoleDialogOpen, setEditRoleDialogOpen] = useState(false)
@@ -80,6 +81,34 @@ export function SettingsClient({ users, currentUser }: { users: any[], currentUs
       } finally {
         setIsLoading(false)
       }
+    }
+  }
+
+  const handleInvoiceToggle = async (userId: string, allowed: boolean) => {
+    setIsLoading(true)
+    try {
+      const result = await toggleInvoiceAccess(userId, allowed)
+      if (result.success) toast.success(allowed ? "Invoice access granted" : "Invoice access removed")
+      else toast.error(result.error || "Failed to change invoice access")
+    } catch {
+      toast.error("An unexpected error occurred")
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const handleCompanySave = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault()
+    setIsLoading(true)
+    const formData = new FormData(e.currentTarget)
+    try {
+      const result = await saveCompanySettings(formData)
+      if (result.success) toast.success("Company details saved")
+      else toast.error(result.error || "Failed to save company details")
+    } catch {
+      toast.error("An unexpected error occurred")
+    } finally {
+      setIsLoading(false)
     }
   }
 
@@ -225,11 +254,29 @@ export function SettingsClient({ users, currentUser }: { users: any[], currentUs
                       <TableCell className="text-zinc-400">{user.email}</TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-2">
+                          {user.role === 'Staff' && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              disabled={isLoading}
+                              title={user.can_create_invoices ? "Invoice access ON — click to remove" : "Invoice access OFF — click to grant"}
+                              className={cn(
+                                "h-8 gap-1.5 text-xs",
+                                user.can_create_invoices
+                                  ? "text-indigo-400 bg-indigo-500/10 hover:bg-indigo-500/20 hover:text-indigo-300"
+                                  : "text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800"
+                              )}
+                              onClick={() => handleInvoiceToggle(user.id, !user.can_create_invoices)}
+                            >
+                              <FileText className="size-3.5" />
+                              {user.can_create_invoices ? "Invoices: On" : "Invoices: Off"}
+                            </Button>
+                          )}
                           {user.id !== currentUser.id && (
                             <>
-                              <Button 
-                                variant="ghost" 
-                                size="icon" 
+                              <Button
+                                variant="ghost"
+                                size="icon"
                                 className="size-8 text-zinc-500 hover:text-white hover:bg-zinc-800"
                                 onClick={() => {
                                   setEditingUser({ id: user.id, name: user.name, role: user.role })
@@ -287,6 +334,99 @@ export function SettingsClient({ users, currentUser }: { users: any[], currentUs
             <p className="text-xs text-zinc-400">Limited to personal KPI dashboard and their assigned projects. No global finance visibility.</p>
           </Card>
         </div>
+
+        {/* Company details — the "Billed By" block + bank info on invoices */}
+        <Card className="bg-zinc-900 border-zinc-800">
+          <CardHeader>
+            <CardTitle className="text-zinc-100 flex items-center gap-2">
+              <Building2 className="size-5 text-indigo-400" />
+              Company Details (Invoices)
+            </CardTitle>
+            <CardDescription className="text-zinc-400">
+              Used as the &quot;Billed By&quot; block and default bank details on every invoice PDF.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {!companySettings && (
+              <div className="mb-4 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-300 text-sm">
+                Settings table not found — run <span className="font-mono">SUPABASE_INVOICES.sql</span> first, then reload this page.
+              </div>
+            )}
+            <form onSubmit={handleCompanySave} className="space-y-4">
+              <div className="grid sm:grid-cols-3 gap-4">
+                <div className="grid gap-2">
+                  <Label className="text-zinc-300">Company Name</Label>
+                  <Input name="name" defaultValue={companySettings?.name || "Techvilo Ltd"} className="bg-zinc-950 border-zinc-800 text-white" required />
+                </div>
+                <div className="grid gap-2">
+                  <Label className="text-zinc-300">Phone</Label>
+                  <Input name="phone" defaultValue={companySettings?.phone || ""} className="bg-zinc-950 border-zinc-800 text-white" />
+                </div>
+                <div className="grid gap-2">
+                  <Label className="text-zinc-300">Email</Label>
+                  <Input name="email" type="email" defaultValue={companySettings?.email || ""} className="bg-zinc-950 border-zinc-800 text-white" />
+                </div>
+              </div>
+              <div className="grid gap-2">
+                <Label className="text-zinc-300">Address</Label>
+                <textarea
+                  name="address"
+                  rows={3}
+                  defaultValue={companySettings?.address || ""}
+                  className="w-full rounded-md bg-zinc-950 border border-zinc-800 text-zinc-100 text-sm p-3 focus:outline-none focus:ring-1 focus:ring-indigo-500/50 resize-y"
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label className="text-zinc-300">
+                  Invoice Logo URL{" "}
+                  <span className="text-zinc-500 text-xs">
+                    (light-background version — e.g. /logo-invoice.png after placing the file in the public folder)
+                  </span>
+                </Label>
+                <div className="flex items-center gap-3">
+                  <Input
+                    name="logo_url"
+                    defaultValue={companySettings?.logo_url || "/logo.png"}
+                    placeholder="/logo-invoice.png"
+                    className="bg-zinc-950 border-zinc-800 text-white font-mono flex-1"
+                  />
+                  {companySettings?.logo_url && (
+                    <div className="h-10 px-3 rounded-md bg-white flex items-center shrink-0">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={companySettings.logo_url} alt="logo preview" className="h-7 w-auto object-contain" />
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div className="grid md:grid-cols-2 gap-4">
+                <div className="grid gap-2">
+                  <Label className="text-zinc-300">Bank Details <span className="text-zinc-500 text-xs">(invoice &quot;Additional Notes&quot;)</span></Label>
+                  <textarea
+                    name="bank_details"
+                    rows={6}
+                    defaultValue={companySettings?.bank_details || ""}
+                    className="w-full rounded-md bg-zinc-950 border border-zinc-800 text-zinc-100 text-sm p-3 font-mono focus:outline-none focus:ring-1 focus:ring-indigo-500/50 resize-y"
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label className="text-zinc-300">Default Terms <span className="text-zinc-500 text-xs">(optional)</span></Label>
+                  <textarea
+                    name="default_terms"
+                    rows={6}
+                    defaultValue={companySettings?.default_terms || ""}
+                    className="w-full rounded-md bg-zinc-950 border border-zinc-800 text-zinc-100 text-sm p-3 focus:outline-none focus:ring-1 focus:ring-indigo-500/50 resize-y"
+                  />
+                </div>
+              </div>
+              <div className="flex justify-end">
+                <Button type="submit" disabled={isLoading || !companySettings} className="bg-indigo-600 hover:bg-indigo-500 text-white gap-2">
+                  <Save className="size-4" />
+                  {isLoading ? "Saving..." : "Save Company Details"}
+                </Button>
+              </div>
+            </form>
+          </CardContent>
+        </Card>
       </div>
 
       <Dialog open={editRoleDialogOpen} onOpenChange={setEditRoleDialogOpen}>

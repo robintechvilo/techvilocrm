@@ -1,11 +1,11 @@
 "use client"
 
-import { useState, useMemo } from "react"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Fragment, useState, useMemo, useEffect } from "react"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Plus, Download, FileSpreadsheet, Building2, CreditCard, AlertCircle, Edit2, Trash2 } from "lucide-react"
+import { Plus, Download, FileSpreadsheet, Building2, CalendarDays, CreditCard, AlertCircle, Ban, Edit2, Trash2, Undo2, Receipt } from "lucide-react"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -14,6 +14,8 @@ import { cn, formatDate, escapeCsv } from "@/lib/utils"
 import * as perm from "@/lib/permissions"
 import { toast } from "sonner"
 import { recordPayment, updatePayment, deletePayment } from "@/app/actions/payments"
+import { recordInvoicePayment, waiveInvoice, unwaiveInvoice } from "@/app/actions/billing"
+import { TablePagination } from "@/components/ui/table-pagination"
 import { buttonVariants } from "@/components/ui/button"
 
 export function PaymentsClient({
@@ -22,6 +24,8 @@ export function PaymentsClient({
   users,
   ledgers,
   payments,
+  invoices,
+  billingEnabled,
   currentUser
 }: {
   clients: any[],
@@ -29,6 +33,8 @@ export function PaymentsClient({
   users: any[],
   ledgers: any[],
   payments: any[],
+  invoices: any[],
+  billingEnabled: boolean,
   currentUser: any
 }) {
   const isAdminOrManager = perm.isAdminOrManager(currentUser)
@@ -41,6 +47,9 @@ export function PaymentsClient({
   const [paymentMethod, setPaymentMethod] = useState<string>("Bank Transfer")
   const [editLedgerId, setEditLedgerId] = useState<string | null>(null)
   const [deleteLedgerId, setDeleteLedgerId] = useState<string | null>(null)
+  const [collectInvoice, setCollectInvoice] = useState<any | null>(null)
+  const [waiveTarget, setWaiveTarget] = useState<any | null>(null)
+  const [collectMethod, setCollectMethod] = useState<string>("Bank Transfer")
   const [isLoading, setIsLoading] = useState(false)
 
   const selectedClient = clients.find(c => c.id === selectedClientId)
@@ -63,6 +72,113 @@ export function PaymentsClient({
     const totalDue = clientProjects.reduce((sum, p) => sum + (Number(p.due_amount) || 0), 0)
     return { totalValue, totalPaid, totalDue }
   }, [clientProjects])
+
+  // Method lives on the linked payment log row, not the ledger snapshot.
+  const getMethod = (ledgerId: string) =>
+    payments.find(p => p.ledger_id === ledgerId)?.method || "—"
+
+  // Group installments by billing month so 2-3 partial payments in the same
+  // month read as ONE month with a subtotal, instead of repeated rows that
+  // look like separate full bills. clientLedger is already newest-first, so
+  // insertion order keeps the most recent month on top.
+  const groupedLedger = useMemo(() => {
+    const groups: { month: string; entries: any[]; paid: number }[] = []
+    const index = new Map<string, number>()
+    for (const entry of clientLedger) {
+      const key = entry.payment_month || "No billing period"
+      if (!index.has(key)) {
+        index.set(key, groups.length)
+        groups.push({ month: key, entries: [], paid: 0 })
+      }
+      const group = groups[index.get(key)!]
+      group.entries.push(entry)
+      group.paid += Number(entry.paid_amount) || 0
+    }
+    return groups
+  }, [clientLedger])
+
+  const totalCollected = clientLedger.reduce((sum, e) => sum + (Number(e.paid_amount) || 0), 0)
+
+  // Paginate the ledger by month-group (6 months per page) and the bills
+  // list by row — both reset when switching client.
+  const GROUPS_PER_PAGE = 6
+  const BILLS_PER_PAGE = 10
+  const [ledgerPage, setLedgerPage] = useState(1)
+  const [billsPage, setBillsPage] = useState(1)
+  useEffect(() => {
+    setLedgerPage(1)
+    setBillsPage(1)
+  }, [selectedClientId])
+  const pagedGroups = groupedLedger.slice((ledgerPage - 1) * GROUPS_PER_PAGE, ledgerPage * GROUPS_PER_PAGE)
+
+  // ---- Monthly bills (recurring projects) ----
+  const clientInvoices = billingEnabled && selectedClientId
+    ? invoices.filter(inv => inv.client_id === selectedClientId)
+    : []
+  const pagedInvoices = clientInvoices.slice((billsPage - 1) * BILLS_PER_PAGE, billsPage * BILLS_PER_PAGE)
+  const todayStr = new Date().toISOString().split("T")[0]
+  const isOverdueBill = (inv: any) =>
+    (inv.status === "Due" || inv.status === "Partial") && inv.due_date && inv.due_date < todayStr
+  const billRemaining = (inv: any) =>
+    Math.max(0, (Number(inv.amount) || 0) - (Number(inv.paid_amount) || 0))
+  const unpaidBillTotal = clientInvoices
+    .filter(inv => inv.status !== "Waived")
+    .reduce((s, inv) => s + billRemaining(inv), 0)
+
+  const handleCollectSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault()
+    if (!collectInvoice) return
+    setIsLoading(true)
+    const formData = new FormData(e.currentTarget)
+    formData.append("invoiceId", collectInvoice.id)
+    try {
+      const result = await recordInvoicePayment(formData)
+      if (result.success) {
+        toast.success("Bill payment recorded")
+        setCollectInvoice(null)
+      } else {
+        toast.error(result.error || "Failed to record bill payment")
+      }
+    } catch {
+      toast.error("An unexpected error occurred")
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const handleWaiveSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault()
+    if (!waiveTarget) return
+    setIsLoading(true)
+    const formData = new FormData(e.currentTarget)
+    formData.append("invoiceId", waiveTarget.id)
+    try {
+      const result = await waiveInvoice(formData)
+      if (result.success) {
+        toast.success("Bill written off")
+        setWaiveTarget(null)
+      } else {
+        toast.error(result.error || "Failed to write off bill")
+      }
+    } catch {
+      toast.error("An unexpected error occurred")
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const handleUnwaive = async (invoiceId: string) => {
+    setIsLoading(true)
+    try {
+      const result = await unwaiveInvoice(invoiceId)
+      if (result.success) toast.success("Bill restored")
+      else toast.error(result.error || "Failed to restore bill")
+    } catch {
+      toast.error("An unexpected error occurred")
+    } finally {
+      setIsLoading(false)
+    }
+  }
 
   const handleRecordPaymentSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
@@ -129,21 +245,32 @@ export function PaymentsClient({
 
   const handleExportCSV = () => {
     if (!selectedClient || clientLedger.length === 0) return
-    const headers = ['Project/Service', 'Billing Month', 'Total Amount', 'Paid', 'Due', 'Pay Date', 'Next Payment', 'Status']
+    // Export the payment log (one row per installment) plus a correct summary
+    // derived from projects. Per-row "Total"/"Due" snapshots were removed —
+    // summing them double-counted months paid in multiple installments.
+    const headers = ['Billing Month', 'Project/Service', 'Amount Paid', 'Method', 'Pay Date', 'Next Payment']
     const rows = clientLedger.map(entry => {
       const project = projects.find(p => p.id === entry.project_id)
       return [
+        entry.payment_month || '-',
         project?.name || 'N/A',
-        entry.payment_month,
-        (Number(entry.total_amount) || 0).toString(),
         (Number(entry.paid_amount) || 0).toString(),
-        (Number(entry.due_amount) || 0).toString(),
+        getMethod(entry.id),
         entry.pay_date || '-',
         entry.next_payment_date || '-',
-        entry.status,
       ]
     })
-    const csvContent = [headers.map(escapeCsv).join(','), ...rows.map(r => r.map(escapeCsv).join(','))].join('\n')
+    const summary = [
+      [],
+      ['Total Project Value', clientSummary.totalValue.toString()],
+      ['Total Collected', clientSummary.totalPaid.toString()],
+      ['Outstanding Due', clientSummary.totalDue.toString()],
+    ]
+    const csvContent = [
+      headers.map(escapeCsv).join(','),
+      ...rows.map(r => r.map(escapeCsv).join(',')),
+      ...summary.map(r => r.map(escapeCsv).join(',')),
+    ].join('\n')
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
@@ -154,7 +281,13 @@ export function PaymentsClient({
     URL.revokeObjectURL(url)
   }
 
-  const hasOutstandingDue = clientProjects.some(p => (Number(p.due_amount) || 0) > 0)
+  // Recurring projects are collected through their monthly bills once
+  // billing is enabled — keep them out of the legacy one-time dialog.
+  const isRecurringProject = (p: any) => String(p.billing_type || "").toLowerCase().startsWith("recurring")
+  const legacyPayableProjects = clientProjects.filter(
+    p => (Number(p.due_amount) || 0) > 0 && !(billingEnabled && isRecurringProject(p))
+  )
+  const hasOutstandingDue = legacyPayableProjects.length > 0
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -202,7 +335,7 @@ export function PaymentsClient({
                       </SelectValue>
                     </SelectTrigger>
                     <SelectContent className="bg-zinc-900 border-zinc-800 text-zinc-100 max-h-[200px]">
-                      {clientProjects.filter(p => (Number(p.due_amount) || 0) > 0).map(p => (
+                      {legacyPayableProjects.map(p => (
                         <SelectItem key={p.id} value={p.id}>
                           <div className="flex flex-row items-center justify-between w-[350px]">
                             <span className="font-medium text-zinc-200 truncate pr-4">{p.name}</span>
@@ -388,6 +521,119 @@ export function PaymentsClient({
               </DialogFooter>
             </DialogContent>
           </Dialog>
+
+          {/* Collect against a monthly bill */}
+          <Dialog open={!!collectInvoice} onOpenChange={(open) => !open && setCollectInvoice(null)}>
+            <DialogContent className="sm:max-w-[460px] bg-zinc-950 border-zinc-800 text-zinc-100">
+              {collectInvoice && (
+              <form onSubmit={handleCollectSubmit} key={collectInvoice.id}>
+                <DialogHeader>
+                  <DialogTitle>Collect Bill — {collectInvoice.billing_month}</DialogTitle>
+                  <DialogDescription className="text-zinc-400">
+                    {projects.find(p => p.id === collectInvoice.project_id)?.name || "Project"} · partial amounts are fine, the rest stays due on this bill.
+                  </DialogDescription>
+                </DialogHeader>
+
+                <div className="mt-3 p-3 rounded-lg border border-zinc-800 bg-zinc-900/50">
+                  <div className="grid grid-cols-3 gap-2 text-center">
+                    <div>
+                      <p className="text-[10px] text-zinc-500 uppercase">Bill</p>
+                      <p className="text-sm font-bold text-zinc-100">৳ {(Number(collectInvoice.amount) || 0).toLocaleString()}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-zinc-500 uppercase">Paid</p>
+                      <p className="text-sm font-bold text-emerald-400">৳ {(Number(collectInvoice.paid_amount) || 0).toLocaleString()}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-zinc-500 uppercase">Remaining</p>
+                      <p className="text-sm font-bold text-rose-400">৳ {billRemaining(collectInvoice).toLocaleString()}</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid gap-4 py-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="grid gap-2">
+                      <Label className="text-zinc-300">Amount Received (BDT)</Label>
+                      <Input
+                        name="amount"
+                        type="number"
+                        defaultValue={billRemaining(collectInvoice)}
+                        max={billRemaining(collectInvoice)}
+                        min={1}
+                        className="bg-zinc-900 border-zinc-800 text-white"
+                        autoFocus
+                        required
+                      />
+                    </div>
+                    <div className="grid gap-2">
+                      <Label className="text-zinc-300">Payment Method</Label>
+                      <Select name="method" value={collectMethod} onValueChange={(v) => setCollectMethod(v || "Bank Transfer")}>
+                        <SelectTrigger className="bg-zinc-900 border-zinc-800 text-zinc-100">
+                          <SelectValue>{collectMethod}</SelectValue>
+                        </SelectTrigger>
+                        <SelectContent className="bg-zinc-900 border-zinc-800 text-zinc-100">
+                          <SelectItem value="Bank Transfer">Bank Transfer</SelectItem>
+                          <SelectItem value="bKash">bKash</SelectItem>
+                          <SelectItem value="Nagad">Nagad</SelectItem>
+                          <SelectItem value="Cash">Cash</SelectItem>
+                          <SelectItem value="Cheque">Cheque</SelectItem>
+                          <SelectItem value="Online Payment">Online Payment</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <div className="grid gap-2">
+                    <Label className="text-zinc-300">Pay Date</Label>
+                    <Input name="payDate" type="date" defaultValue={new Date().toISOString().split('T')[0]} className="bg-zinc-900 border-zinc-800 text-white" required />
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button type="submit" disabled={isLoading} className="bg-emerald-600 hover:bg-emerald-500 text-white w-full">
+                    <CreditCard className="size-4 mr-2" />
+                    {isLoading ? "Recording..." : "Record Payment"}
+                  </Button>
+                </DialogFooter>
+              </form>
+              )}
+            </DialogContent>
+          </Dialog>
+
+          {/* Write off a bill (client left without paying, discount, etc.) */}
+          <Dialog open={!!waiveTarget} onOpenChange={(open) => !open && setWaiveTarget(null)}>
+            <DialogContent className="sm:max-w-[440px] bg-zinc-950 border-zinc-800 text-zinc-100">
+              {waiveTarget && (
+              <form onSubmit={handleWaiveSubmit} key={waiveTarget.id}>
+                <DialogHeader>
+                  <DialogTitle className="text-rose-400 flex items-center gap-2">
+                    <Ban className="size-5" /> Write Off Bill
+                  </DialogTitle>
+                  <DialogDescription className="text-zinc-400 pt-2">
+                    <span className="text-zinc-200 font-medium">{waiveTarget.billing_month}</span> —
+                    remaining <span className="text-rose-400 font-medium">৳ {billRemaining(waiveTarget).toLocaleString()}</span> will
+                    stop counting as due. Payments already collected stay in history. You can restore this bill later.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="grid gap-2 py-4">
+                  <Label className="text-zinc-300">Reason</Label>
+                  <Input
+                    name="reason"
+                    placeholder="e.g. Client left without paying / goodwill discount"
+                    className="bg-zinc-900 border-zinc-800 text-white"
+                    minLength={3}
+                    required
+                  />
+                </div>
+                <DialogFooter>
+                  <Button type="button" variant="ghost" onClick={() => setWaiveTarget(null)} className="text-zinc-400 hover:text-white">Cancel</Button>
+                  <Button type="submit" disabled={isLoading} className="bg-rose-600 hover:bg-rose-500 text-white">
+                    {isLoading ? "Writing off..." : "Write Off"}
+                  </Button>
+                </DialogFooter>
+              </form>
+              )}
+            </DialogContent>
+          </Dialog>
         </div>
       </div>
 
@@ -463,6 +709,132 @@ export function PaymentsClient({
             </div>
           )}
 
+          {/* MONTHLY BILLS — recurring projects. One bill per month; partial
+              installments accumulate against it; dead bills can be waived. */}
+          {billingEnabled && selectedClient && clientInvoices.length > 0 && (
+            <Card className="bg-zinc-900 border-zinc-800">
+              <CardHeader>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div>
+                    <CardTitle className="text-zinc-100 flex items-center gap-2">
+                      <Receipt className="size-5 text-indigo-400" />
+                      Monthly Bills
+                    </CardTitle>
+                    <CardDescription className="text-zinc-400">
+                      Recurring bills for {selectedClient.company}. Collect installments, or write off a bill if the client left.
+                    </CardDescription>
+                  </div>
+                  {unpaidBillTotal > 0 && (
+                    <Badge variant="outline" className="bg-rose-500/10 text-rose-400 border-rose-500/20 shrink-0">
+                      ৳ {unpaidBillTotal.toLocaleString()} unpaid
+                    </Badge>
+                  )}
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="rounded-md border border-zinc-800 overflow-x-auto">
+                  <Table className="min-w-[720px]">
+                    <TableHeader className="bg-zinc-950/50">
+                      <TableRow className="border-zinc-800 hover:bg-transparent whitespace-nowrap">
+                        <TableHead className="text-zinc-400">Month</TableHead>
+                        <TableHead className="text-zinc-400">Project</TableHead>
+                        <TableHead className="text-zinc-400 text-right">Bill</TableHead>
+                        <TableHead className="text-zinc-400 text-right">Paid</TableHead>
+                        <TableHead className="text-zinc-400 text-right">Remaining</TableHead>
+                        <TableHead className="text-zinc-400">Status</TableHead>
+                        <TableHead className="text-zinc-400 text-right">Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {pagedInvoices.map((inv) => {
+                        const project = projects.find(p => p.id === inv.project_id)
+                        const remaining = billRemaining(inv)
+                        const overdue = isOverdueBill(inv)
+                        const isWaived = inv.status === "Waived"
+                        const isPaid = inv.status === "Paid"
+                        return (
+                          <TableRow key={inv.id} className={cn(
+                            "border-zinc-800 hover:bg-zinc-800/50 transition-colors whitespace-nowrap",
+                            isWaived && "opacity-50"
+                          )}>
+                            <TableCell className="font-medium text-zinc-100">{inv.billing_month}</TableCell>
+                            <TableCell className="text-zinc-300">{project?.name || "N/A"}</TableCell>
+                            <TableCell className="text-right text-zinc-300">৳ {(Number(inv.amount) || 0).toLocaleString()}</TableCell>
+                            <TableCell className="text-right text-emerald-400 font-medium">৳ {(Number(inv.paid_amount) || 0).toLocaleString()}</TableCell>
+                            <TableCell className={cn("text-right font-medium", remaining > 0 && !isWaived ? "text-rose-400" : "text-zinc-500")}>
+                              {isWaived ? <span className="line-through">৳ {remaining.toLocaleString()}</span> : remaining > 0 ? `৳ ${remaining.toLocaleString()}` : "-"}
+                            </TableCell>
+                            <TableCell>
+                              <Badge
+                                variant="outline"
+                                title={isWaived ? (inv.waive_reason || undefined) : undefined}
+                                className={
+                                  isPaid ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" :
+                                  isWaived ? "bg-zinc-800/50 text-zinc-500 border-zinc-700" :
+                                  overdue ? "bg-rose-500/10 text-rose-400 border-rose-500/20" :
+                                  inv.status === "Partial" ? "bg-amber-500/10 text-amber-400 border-amber-500/20" :
+                                  "bg-blue-500/10 text-blue-400 border-blue-500/20"
+                                }
+                              >
+                                {isWaived ? "Written off" : overdue ? "Overdue" : inv.status}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <div className="flex items-center justify-end gap-1.5">
+                                {!isPaid && !isWaived && canRecordPayment && (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-7 bg-emerald-600/10 text-emerald-400 border-emerald-500/30 hover:bg-emerald-600/20 hover:text-emerald-300 text-xs"
+                                    onClick={() => {
+                                      setCollectMethod("Bank Transfer")
+                                      setCollectInvoice(inv)
+                                    }}
+                                  >
+                                    Collect
+                                  </Button>
+                                )}
+                                {!isPaid && !isWaived && isAdminOrManager && (
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    title="Write off this bill (client left, discount, etc.)"
+                                    className="size-7 text-zinc-500 hover:text-rose-400 hover:bg-rose-500/10"
+                                    onClick={() => setWaiveTarget(inv)}
+                                  >
+                                    <Ban className="size-3.5" />
+                                  </Button>
+                                )}
+                                {isWaived && isAdminOrManager && (
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    title="Restore this bill"
+                                    className="size-7 text-zinc-500 hover:text-emerald-400 hover:bg-emerald-500/10"
+                                    onClick={() => handleUnwaive(inv.id)}
+                                    disabled={isLoading}
+                                  >
+                                    <Undo2 className="size-3.5" />
+                                  </Button>
+                                )}
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        )
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+                <TablePagination
+                  page={billsPage}
+                  pageSize={BILLS_PER_PAGE}
+                  totalItems={clientInvoices.length}
+                  onPageChange={setBillsPage}
+                />
+              </CardContent>
+            </Card>
+          )}
+
           <Card className="bg-zinc-900 border-zinc-800">
             <CardHeader>
               <CardTitle className="text-zinc-100 flex items-center gap-2">
@@ -483,77 +855,99 @@ export function PaymentsClient({
                 </div>
               ) : (
                 <div className="rounded-md border border-zinc-800 overflow-x-auto">
-                  <Table className="min-w-[900px]">
+                  <Table className="min-w-[760px]">
                     <TableHeader className="bg-zinc-950/50">
                       <TableRow className="border-zinc-800 hover:bg-transparent whitespace-nowrap">
                         <TableHead className="text-zinc-400">Project/Service</TableHead>
-                        <TableHead className="text-zinc-400">Billing Period</TableHead>
-                        <TableHead className="text-zinc-400 text-right">Project Total</TableHead>
                         <TableHead className="text-zinc-400 text-right">Amount Paid</TableHead>
-                        <TableHead className="text-zinc-400 text-right">Remaining Due</TableHead>
+                        <TableHead className="text-zinc-400">Method</TableHead>
                         <TableHead className="text-zinc-400">Pay Date</TableHead>
                         <TableHead className="text-zinc-400">Next Payment</TableHead>
-                        <TableHead className="text-zinc-400 text-right">Status</TableHead>
                         <TableHead className="text-zinc-400 text-right">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {clientLedger.map((entry) => {
-                        const project = projects.find(p => p.id === entry.project_id)
-                        return (
-                        <TableRow key={entry.id} className="border-zinc-800 hover:bg-zinc-800/50 transition-colors whitespace-nowrap">
-                          <TableCell className="font-medium text-zinc-100">{project?.name || 'N/A'}</TableCell>
-                          <TableCell className="text-zinc-300">{entry.payment_month}</TableCell>
-                          <TableCell className="text-right text-zinc-300">৳ {(Number(entry.total_amount) || 0).toLocaleString()}</TableCell>
-                          <TableCell className="text-right text-emerald-400 font-medium">৳ {(Number(entry.paid_amount) || 0).toLocaleString()}</TableCell>
-                          <TableCell className="text-right text-rose-400 font-medium">
-                            {(Number(entry.due_amount) || 0) > 0 ? `৳ ${(Number(entry.due_amount) || 0).toLocaleString()}` : '-'}
-                          </TableCell>
-                          <TableCell className="text-zinc-400">{formatDate(entry.pay_date)}</TableCell>
-                          <TableCell className="text-zinc-400">{formatDate(entry.next_payment_date)}</TableCell>
-                          <TableCell className="text-right">
-                            <Badge variant="outline"
-                              className={
-                                entry.status === 'Paid' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
-                                entry.status === 'Partial' ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' :
-                                'bg-rose-500/10 text-rose-400 border-rose-500/20'
-                              }
-                            >
-                              {entry.status}
-                            </Badge>
-                          </TableCell>
-                          <TableCell className="text-right">
-                            {canRecordPayment ? (
-                              <div className="flex items-center justify-end gap-1">
-                                <Button variant="ghost" size="icon" className="size-8 text-zinc-500 hover:text-indigo-400 hover:bg-indigo-500/10" onClick={() => setEditLedgerId(entry.id)}>
-                                  <Edit2 className="size-3.5" />
-                                </Button>
-                                <Button variant="ghost" size="icon" className="size-8 text-zinc-500 hover:text-rose-400 hover:bg-rose-500/10" onClick={() => setDeleteLedgerId(entry.id)}>
-                                  <Trash2 className="size-3.5" />
-                                </Button>
+                      {pagedGroups.map((group) => (
+                        <Fragment key={group.month}>
+                          {/* Month header — installments in the same billing
+                              month roll up under one subtotal */}
+                          <TableRow className="border-zinc-800 bg-zinc-950/70 hover:bg-zinc-950/70">
+                            <TableCell colSpan={6} className="py-2">
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-2">
+                                  <CalendarDays className="size-3.5 text-indigo-400" />
+                                  <span className="text-xs font-bold text-zinc-200 uppercase tracking-wider">{group.month}</span>
+                                  <span className="text-[10px] text-zinc-500">
+                                    {group.entries.length} payment{group.entries.length > 1 ? "s" : ""}
+                                  </span>
+                                </div>
+                                <span className="text-xs font-bold text-emerald-400">
+                                  ৳ {group.paid.toLocaleString()} collected
+                                </span>
                               </div>
-                            ) : (
-                              <span className="text-xs text-zinc-600">-</span>
-                            )}
-                          </TableCell>
-                        </TableRow>
-                      )})}
+                            </TableCell>
+                          </TableRow>
+                          {group.entries.map((entry) => {
+                            const project = projects.find(p => p.id === entry.project_id)
+                            return (
+                            <TableRow key={entry.id} className="border-zinc-800 hover:bg-zinc-800/50 transition-colors whitespace-nowrap">
+                              <TableCell className="font-medium text-zinc-100">
+                                <div>{project?.name || 'N/A'}</div>
+                                {project?.service && (
+                                  <div className="text-[10px] text-zinc-500 font-normal">{project.service}</div>
+                                )}
+                              </TableCell>
+                              <TableCell className="text-right text-emerald-400 font-medium">৳ {(Number(entry.paid_amount) || 0).toLocaleString()}</TableCell>
+                              <TableCell>
+                                <Badge variant="outline" className="bg-zinc-800/50 text-zinc-300 border-zinc-700 text-[10px]">
+                                  {getMethod(entry.id)}
+                                </Badge>
+                              </TableCell>
+                              <TableCell className="text-zinc-400">{formatDate(entry.pay_date)}</TableCell>
+                              <TableCell className="text-zinc-400">{formatDate(entry.next_payment_date)}</TableCell>
+                              <TableCell className="text-right">
+                                {canRecordPayment ? (
+                                  <div className="flex items-center justify-end gap-1">
+                                    <Button variant="ghost" size="icon" className="size-8 text-zinc-500 hover:text-indigo-400 hover:bg-indigo-500/10" onClick={() => setEditLedgerId(entry.id)}>
+                                      <Edit2 className="size-3.5" />
+                                    </Button>
+                                    <Button variant="ghost" size="icon" className="size-8 text-zinc-500 hover:text-rose-400 hover:bg-rose-500/10" onClick={() => setDeleteLedgerId(entry.id)}>
+                                      <Trash2 className="size-3.5" />
+                                    </Button>
+                                  </div>
+                                ) : (
+                                  <span className="text-xs text-zinc-600">-</span>
+                                )}
+                              </TableCell>
+                            </TableRow>
+                          )})}
+                        </Fragment>
+                      ))}
+                      {/* Grand totals — value & due come from the client's
+                          projects so they always match the summary cards */}
                       <TableRow className="border-zinc-800 bg-zinc-950/80 font-bold hover:bg-zinc-950/80">
-                        <TableCell colSpan={2} className="text-zinc-100">Total</TableCell>
-                        <TableCell className="text-right text-zinc-100">
-                          ৳ {clientLedger.reduce((sum, e) => sum + (Number(e.total_amount) || 0), 0).toLocaleString()}
-                        </TableCell>
+                        <TableCell className="text-zinc-100">Total Collected</TableCell>
                         <TableCell className="text-right text-emerald-400">
-                          ৳ {clientLedger.reduce((sum, e) => sum + (Number(e.paid_amount) || 0), 0).toLocaleString()}
+                          ৳ {totalCollected.toLocaleString()}
+                        </TableCell>
+                        <TableCell colSpan={3} className="text-right text-zinc-500 text-xs font-normal">
+                          Current outstanding (all projects)
                         </TableCell>
                         <TableCell className="text-right text-rose-400">
-                          ৳ {clientLedger.reduce((sum, e) => sum + (Number(e.due_amount) || 0), 0).toLocaleString()}
+                          {clientSummary.totalDue > 0 ? `৳ ${clientSummary.totalDue.toLocaleString()}` : '৳ 0'}
                         </TableCell>
-                        <TableCell colSpan={4}></TableCell>
                       </TableRow>
                     </TableBody>
                   </Table>
                 </div>
+              )}
+              {selectedClient && clientLedger.length > 0 && (
+                <TablePagination
+                  page={ledgerPage}
+                  pageSize={GROUPS_PER_PAGE}
+                  totalItems={groupedLedger.length}
+                  onPageChange={setLedgerPage}
+                />
               )}
             </CardContent>
           </Card>

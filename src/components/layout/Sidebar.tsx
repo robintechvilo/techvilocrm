@@ -13,6 +13,7 @@ import {
   Kanban,
   LogOut,
   Globe,
+  FileText,
   User as UserIcon,
 } from "lucide-react"
 import { cn, getInitials } from "@/lib/utils"
@@ -27,6 +28,7 @@ const navigation = [
   { name: 'Projects',      href: '/projects',          icon: Briefcase,       roles: ['Admin', 'Manager', 'Staff'] as Role[] },
   { name: 'Payments',      href: '/payments',          icon: CreditCard,      roles: ['Admin', 'Manager', 'Staff'] as Role[] },
   { name: 'Ad Support',    href: '/ad-support',        icon: Globe,           roles: ['Admin', 'Manager', 'Staff'] as Role[] },
+  { name: 'Invoices',      href: '/invoices',          icon: FileText,        roles: ['Admin', 'Manager', 'Staff'] as Role[] },
   { name: 'Expenses',      href: '/expenses',          icon: Receipt,         roles: ['Admin', 'Manager'] as Role[] },
   { name: 'Team Settings', href: '/settings',          icon: Settings,        roles: ['Admin'] as Role[] },
   { name: 'My Profile',    href: '/settings/profile',  icon: UserIcon,        roles: ['Admin', 'Manager', 'Staff'] as Role[] },
@@ -35,7 +37,12 @@ const navigation = [
 export function Sidebar({ currentUser, onNavigate }: { currentUser: any; onNavigate?: () => void }) {
   const pathname = usePathname()
   const userRole = (currentUser?.role as Role) || ''
-  const filteredNavigation = navigation.filter((item) => item.roles.includes(userRole as Role))
+  const filteredNavigation = navigation.filter((item) => {
+    if (!item.roles.includes(userRole as Role)) return false
+    // Invoices: Staff only when the admin has granted them access
+    if (item.href === '/invoices' && userRole === 'Staff' && !currentUser?.can_create_invoices) return false
+    return true
+  })
 
   const handleLogout = async () => {
     await logout()

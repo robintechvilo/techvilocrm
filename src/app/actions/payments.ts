@@ -2,6 +2,8 @@
 import { revalidatePath } from "next/cache"
 import { z } from "zod"
 import { getAuthContext, isManagerOrAbove } from "@/lib/auth"
+import { isRecurring, recalcInvoiceFromLedgers, recalcProjectTotals } from "@/lib/billing-helpers"
+import { autoCreateInvoiceForPayment } from "@/lib/invoice-auto"
 
 const paymentSchema = z.object({
   projectId: z.string().uuid(),
@@ -63,6 +65,24 @@ export async function recordPayment(formData: FormData) {
 
     const { supabase, user, project } = guard
 
+    // Recurring projects with monthly bills must be collected through their
+    // bill (Payments page → Monthly Bills), otherwise the project totals and
+    // the invoice totals drift apart. If the billing migration hasn't been
+    // run yet (no invoices exist), the legacy flow below still works.
+    if (isRecurring(project.billing_type)) {
+      const { data: existingInvoices } = await supabase
+        .from('invoices')
+        .select('id')
+        .eq('project_id', project.id)
+        .limit(1)
+      if (existingInvoices && existingInvoices.length > 0) {
+        return {
+          success: false,
+          error: "This is a recurring project — collect it from its monthly bill in the Payments page.",
+        }
+      }
+    }
+
     const projectAmount = Number(project.amount) || 0
     const projectPaid = Number(project.paid_amount) || 0
     const projectDue = Number(project.due_amount) || 0
@@ -122,9 +142,23 @@ export async function recordPayment(formData: FormData) {
 
     if (pUpdateErr) throw pUpdateErr
 
+    // Auto-generate a "Paid" invoice document for this collection
+    // (no-op until SUPABASE_INVOICES.sql is run)
+    await autoCreateInvoiceForPayment(supabase, {
+      clientId: project.client_id,
+      projectName: project.name,
+      amount: actualAmount,
+      billingMonth: validatedData.billingMonth,
+      payDate: validatedData.payDate,
+      method: validatedData.method,
+      ledgerId: ledgerRow.id,
+      userId: user.id,
+    })
+
     revalidatePath("/payments")
     revalidatePath("/projects")
     revalidatePath("/")
+    revalidatePath("/invoices")
     return { success: true }
   } catch (error: any) {
     console.error("Failed to record payment:", error)
@@ -154,6 +188,51 @@ export async function updatePayment(ledgerId: string, formData: FormData) {
 
     if (!isManagerOrAbove(role) && oldLedger.created_by !== user.id) {
       return { success: false, error: "You don't have permission to modify this payment" }
+    }
+
+    // Installments that pay a monthly bill reconcile against the bill,
+    // not against the project's one-time total.
+    if (oldLedger.invoice_id) {
+      const { data: invoice } = await supabase
+        .from('invoices')
+        .select('*')
+        .eq('id', oldLedger.invoice_id)
+        .single()
+      if (!invoice) return { success: false, error: "Linked bill not found" }
+
+      const otherPaid = Math.max(0, (Number(invoice.paid_amount) || 0) - (Number(oldLedger.paid_amount) || 0))
+      const maxAllowed = Math.max(0, (Number(invoice.amount) || 0) - otherPaid)
+      if (validated.amount > maxAllowed) {
+        return { success: false, error: `Amount exceeds this bill. Max: ৳${maxAllowed.toLocaleString()}` }
+      }
+
+      const billRemaining = Math.max(0, (Number(invoice.amount) || 0) - (otherPaid + validated.amount))
+
+      const { error: ledgErr } = await supabase.from('ledgers').update({
+        paid_amount: validated.amount,
+        due_amount: billRemaining,
+        status: billRemaining <= 0 ? 'Paid' : 'Partial',
+        pay_date: validated.payDate,
+        // The billing month stays locked to the bill's month
+        payment_month: invoice.billing_month,
+        full_amount: billRemaining <= 0 ? 'Yes' : 'No',
+      }).eq('id', ledgerId)
+      if (ledgErr) throw ledgErr
+
+      await supabase.from('payments').update({
+        amount: validated.amount,
+        method: validated.method,
+        date: validated.payDate,
+        billing_period: invoice.billing_month,
+      }).eq('ledger_id', ledgerId)
+
+      await recalcInvoiceFromLedgers(supabase, invoice.id)
+      await recalcProjectTotals(supabase, oldLedger.project_id)
+
+      revalidatePath("/payments")
+      revalidatePath("/projects")
+      revalidatePath("/")
+      return { success: true }
     }
 
     const { data: project } = await supabase
@@ -239,34 +318,19 @@ export async function deletePayment(ledgerId: string) {
       return { success: false, error: "You don't have permission to delete this payment" }
     }
 
-    const { data: project } = await supabase
-      .from('projects')
-      .select('*')
-      .eq('id', ledger.project_id)
-      .single()
-
-    if (project) {
-      const ledgerPaid = Number(ledger.paid_amount) || 0
-      const projectPaid = Number(project.paid_amount) || 0
-      const projectAmount = Number(project.amount) || 0
-
-      const newPaid = Math.max(0, projectPaid - ledgerPaid)
-      const newDue = Math.max(0, projectAmount - newPaid)
-      const newStatus = project.status === 'Completed' && newDue > 0 ? 'Active' : project.status
-
-      await supabase.from('projects').update({
-        paid_amount: newPaid,
-        due_amount: newDue,
-        status: newStatus,
-      }).eq('id', project.id)
-    }
-
     // Delete the linked payment log via ledger_id (precise — no soft match)
     await supabase.from('payments').delete().eq('ledger_id', ledgerId)
 
     // Delete the ledger row itself
     const { error } = await supabase.from('ledgers').delete().eq('id', ledgerId)
     if (error) throw error
+
+    // Re-derive totals from what's left instead of hand-adjusting them.
+    // Handles both one-time projects and monthly-bill installments.
+    if (ledger.invoice_id) {
+      await recalcInvoiceFromLedgers(supabase, ledger.invoice_id)
+    }
+    await recalcProjectTotals(supabase, ledger.project_id, { reopenCompleted: true })
 
     revalidatePath("/payments")
     revalidatePath("/projects")

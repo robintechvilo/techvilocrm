@@ -1,11 +1,12 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState, useMemo, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Plus, Briefcase, CreditCard, TrendingUp, Clock, History, Edit2, Trash2, AlertCircle } from "lucide-react"
+import { Plus, Briefcase, CreditCard, TrendingUp, Clock, History, Edit2, Trash2, AlertCircle, Search } from "lucide-react"
+import { TablePagination } from "@/components/ui/table-pagination"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -61,8 +62,32 @@ export function ProjectsClient({
     ? initialClients
     : initialClients.filter(c => c.created_by === currentUser?.id)
 
+  // ---- Search / filter / pagination ----
+  const PAGE_SIZE = 10
+  const [search, setSearch] = useState("")
+  const [statusFilter, setStatusFilter] = useState<string>("All")
+  const [page, setPage] = useState(1)
+
+  useEffect(() => { setPage(1) }, [search, statusFilter])
+
+  const filteredProjects = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    return projects.filter(p => {
+      if (statusFilter !== "All" && p.status !== statusFilter) return false
+      if (!q) return true
+      const client = initialClients.find(c => c.id === p.client_id)
+      return (
+        String(p.name || "").toLowerCase().includes(q) ||
+        String(p.service || "").toLowerCase().includes(q) ||
+        String(client?.company || "").toLowerCase().includes(q) ||
+        String(client?.name || "").toLowerCase().includes(q)
+      )
+    })
+  }, [projects, initialClients, search, statusFilter])
+
+  const pagedProjects = filteredProjects.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+
   const isOwnProject = (project: any) => perm.isOwner(project, currentUser)
-  const getOwnerName = (entity: any) => perm.getOwnerName(entity, users)
   const getClientLabel = (clientId: string) => {
     const c = initialClients.find(c => c.id === clientId)
     return c ? `${c.name} (${c.company})` : 'Select client'
@@ -280,6 +305,8 @@ export function ProjectsClient({
                           <SelectItem value="Active">Active</SelectItem>
                           <SelectItem value="In Progress">In Progress</SelectItem>
                           <SelectItem value="Completed">Completed</SelectItem>
+                          <SelectItem value="Paused">Paused (billing on hold)</SelectItem>
+                          <SelectItem value="Cancelled">Cancelled (ended)</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
@@ -337,8 +364,38 @@ export function ProjectsClient({
 
       <Card className="bg-zinc-900 border-zinc-800">
         <CardHeader>
-          <CardTitle className="text-zinc-100">All Projects</CardTitle>
-          <CardDescription className="text-zinc-400">Overview of all active and past projects. Click "Add Payment" to record incoming payments.</CardDescription>
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+            <div>
+              <CardTitle className="text-zinc-100">All Projects</CardTitle>
+              <CardDescription className="text-zinc-400">
+                {filteredProjects.length} of {projects.length} shown. Click "Add Payment" to record incoming payments.
+              </CardDescription>
+            </div>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v || "All")}>
+                <SelectTrigger className="bg-zinc-950 border-zinc-800 text-zinc-100 w-full sm:w-[160px]">
+                  <SelectValue>{statusFilter === "All" ? "All statuses" : statusFilter}</SelectValue>
+                </SelectTrigger>
+                <SelectContent className="bg-zinc-900 border-zinc-800 text-zinc-100">
+                  <SelectItem value="All">All statuses</SelectItem>
+                  <SelectItem value="Active">Active</SelectItem>
+                  <SelectItem value="In Progress">In Progress</SelectItem>
+                  <SelectItem value="Completed">Completed</SelectItem>
+                  <SelectItem value="Paused">Paused</SelectItem>
+                  <SelectItem value="Cancelled">Cancelled</SelectItem>
+                </SelectContent>
+              </Select>
+              <div className="relative w-full sm:w-64">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-zinc-500" />
+                <Input
+                  placeholder="Search project, service, client..."
+                  className="pl-9 bg-zinc-950 border-zinc-800"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                />
+              </div>
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
           {projects.length === 0 ? (
@@ -346,6 +403,12 @@ export function ProjectsClient({
               <Briefcase className="size-12 text-zinc-700 mx-auto mb-4" />
               <h3 className="text-lg font-semibold text-zinc-300 mb-1">No Projects Yet</h3>
               <p className="text-zinc-500 text-sm">Create your first project to start tracking work.</p>
+            </div>
+          ) : filteredProjects.length === 0 ? (
+            <div className="text-center py-12">
+              <Search className="size-12 text-zinc-700 mx-auto mb-4" />
+              <h3 className="text-lg font-semibold text-zinc-300 mb-1">No Matches</h3>
+              <p className="text-zinc-500 text-sm">No projects match your search/filter.</p>
             </div>
           ) : (
             <div className="rounded-md border border-zinc-800 overflow-hidden">
@@ -360,12 +423,11 @@ export function ProjectsClient({
                     <TableHead className="text-zinc-400">Due</TableHead>
                     <TableHead className="text-zinc-400">Next Payment</TableHead>
                     <TableHead className="text-zinc-400">Status</TableHead>
-                    {isStaff && <TableHead className="text-zinc-400">Owner</TableHead>}
                     <TableHead className="text-zinc-400 text-right">Action</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {projects.map((project) => {
+                  {pagedProjects.map((project) => {
                     const progressPercent = project.amount > 0 ? Math.round((project.paid_amount / project.amount) * 100) : 0
                     const isMine = isOwnProject(project)
                     const canControl = isAdminOrManager || isMine
@@ -415,22 +477,14 @@ export function ProjectsClient({
                             project.status === 'Active' ? 'bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500/20 border border-indigo-500/20' :
                             project.status === 'Completed' ? 'bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 border border-emerald-500/20' :
                             project.status === 'In Progress' ? 'bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 border border-blue-500/20' :
+                            project.status === 'Paused' ? 'bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 border border-amber-500/20' :
+                            project.status === 'Cancelled' ? 'bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 border border-rose-500/20' :
                             'text-zinc-400 border-zinc-700 bg-zinc-800/50'
                           }
                         >
                           {project.status}
                         </Badge>
                       </TableCell>
-                      {isStaff && (
-                        <TableCell>
-                          <span className={cn(
-                            "text-xs font-medium",
-                            isMine ? "text-indigo-400" : "text-zinc-500"
-                          )}>
-                            {getOwnerName(project)}
-                          </span>
-                        </TableCell>
-                      )}
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-1.5">
                           <Button
@@ -501,6 +555,12 @@ export function ProjectsClient({
               </Table>
             </div>
           )}
+          <TablePagination
+            page={page}
+            pageSize={PAGE_SIZE}
+            totalItems={filteredProjects.length}
+            onPageChange={setPage}
+          />
         </CardContent>
       </Card>
 
@@ -759,6 +819,8 @@ export function ProjectsClient({
                       <SelectItem value="Active">Active</SelectItem>
                       <SelectItem value="In Progress">In Progress</SelectItem>
                       <SelectItem value="Completed">Completed</SelectItem>
+                      <SelectItem value="Paused">Paused (billing on hold)</SelectItem>
+                      <SelectItem value="Cancelled">Cancelled (ended)</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>

@@ -1,11 +1,12 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useMemo, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Plus, Users, ExternalLink, Eye, Edit2, Trash2, AlertCircle } from "lucide-react"
+import { Plus, Users, ExternalLink, Eye, Edit2, Trash2, AlertCircle, Search } from "lucide-react"
+import { TablePagination } from "@/components/ui/table-pagination"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -29,6 +30,30 @@ export function ClientsClient({ initialClients, currentUser, users }: { initialC
 
   const isOwnClient = (client: any) => perm.isOwner(client, currentUser)
   const getOwnerName = (entity: any) => perm.getOwnerName(entity, users)
+
+  // ---- Search / filter / pagination ----
+  const PAGE_SIZE = 10
+  const [search, setSearch] = useState("")
+  const [statusFilter, setStatusFilter] = useState<string>("All")
+  const [page, setPage] = useState(1)
+
+  useEffect(() => { setPage(1) }, [search, statusFilter])
+
+  const filteredClients = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    return initialClients.filter(client => {
+      if (statusFilter !== "All" && client.status !== statusFilter) return false
+      if (!q) return true
+      return (
+        String(client.name || "").toLowerCase().includes(q) ||
+        String(client.company || "").toLowerCase().includes(q) ||
+        String(client.email || "").toLowerCase().includes(q) ||
+        String(client.phone || "").toLowerCase().includes(q)
+      )
+    })
+  }, [initialClients, search, statusFilter])
+
+  const pagedClients = filteredClients.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
@@ -157,7 +182,34 @@ export function ClientsClient({ initialClients, currentUser, users }: { initialC
       </div>
       <Card className="bg-zinc-900 border-zinc-800 shadow-xl">
         <CardHeader className="pb-3">
-          <CardTitle className="text-lg text-zinc-100">All Clients</CardTitle>
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+            <div>
+              <CardTitle className="text-lg text-zinc-100">All Clients</CardTitle>
+              <p className="text-xs text-zinc-500 mt-0.5">{filteredClients.length} of {initialClients.length} shown</p>
+            </div>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v || "All")}>
+                <SelectTrigger className="bg-zinc-950 border-zinc-800 text-zinc-100 w-full sm:w-[140px]">
+                  <SelectValue>{statusFilter === "All" ? "All statuses" : statusFilter}</SelectValue>
+                </SelectTrigger>
+                <SelectContent className="bg-zinc-900 border-zinc-800 text-zinc-100">
+                  <SelectItem value="All">All statuses</SelectItem>
+                  <SelectItem value="Lead">Lead</SelectItem>
+                  <SelectItem value="Active">Active</SelectItem>
+                  <SelectItem value="Inactive">Inactive</SelectItem>
+                </SelectContent>
+              </Select>
+              <div className="relative w-full sm:w-64">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-zinc-500" />
+                <Input
+                  placeholder="Search name, company, email, phone..."
+                  className="pl-9 bg-zinc-950 border-zinc-800"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                />
+              </div>
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
           {initialClients.length === 0 ? (
@@ -165,6 +217,12 @@ export function ClientsClient({ initialClients, currentUser, users }: { initialC
               <Users className="size-12 text-zinc-700 mx-auto mb-4" />
               <h3 className="text-lg font-semibold text-zinc-300 mb-1">No Clients Yet</h3>
               <p className="text-zinc-500 text-sm">Add your first client to get started.</p>
+            </div>
+          ) : filteredClients.length === 0 ? (
+            <div className="text-center py-12">
+              <Search className="size-12 text-zinc-700 mx-auto mb-4" />
+              <h3 className="text-lg font-semibold text-zinc-300 mb-1">No Matches</h3>
+              <p className="text-zinc-500 text-sm">No clients match your search/filter.</p>
             </div>
           ) : (
             <div className="rounded-md border border-zinc-800 overflow-hidden">
@@ -180,7 +238,7 @@ export function ClientsClient({ initialClients, currentUser, users }: { initialC
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {initialClients.map((client) => {
+                  {pagedClients.map((client) => {
                     const isMine = isOwnClient(client)
                     const canAccess = isAdminOrManager || isMine
                     return (
@@ -267,6 +325,12 @@ export function ClientsClient({ initialClients, currentUser, users }: { initialC
               </Table>
             </div>
           )}
+          <TablePagination
+            page={page}
+            pageSize={PAGE_SIZE}
+            totalItems={filteredClients.length}
+            onPageChange={setPage}
+          />
         </CardContent>
       </Card>
       {/* Edit Client Dialog */}

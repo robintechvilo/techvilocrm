@@ -5,20 +5,24 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { ArrowLeft, Mail, Phone, Building2, Briefcase, CreditCard, Clock } from "lucide-react"
+import { ArrowLeft, Mail, Phone, Building2, Briefcase, CreditCard, Clock, Receipt, Globe } from "lucide-react"
 import { cn } from "@/lib/utils"
 import * as perm from "@/lib/permissions"
 
-export function ClientProfileClient({ 
-  client, 
-  projects, 
-  ledgers, 
-  currentUser 
-}: { 
-  client: any, 
-  projects: any[], 
-  ledgers: any[], 
-  currentUser: any 
+export function ClientProfileClient({
+  client,
+  projects,
+  ledgers,
+  invoices,
+  adSupport,
+  currentUser
+}: {
+  client: any,
+  projects: any[],
+  ledgers: any[],
+  invoices: any[],
+  adSupport: any[],
+  currentUser: any
 }) {
   const router = useRouter()
   
@@ -189,6 +193,101 @@ export function ClientProfileClient({
           </Card>
         )}
       </div>
+
+      {/* Monthly bills + Ad support — the client's full picture */}
+      {canSeeFinance && (invoices.length > 0 || adSupport.length > 0) && (
+        <div className="grid gap-6 md:grid-cols-2 items-start">
+          {invoices.length > 0 && (
+            <Card className="bg-zinc-900 border-zinc-800">
+              <CardHeader>
+                <CardTitle className="text-zinc-100 flex items-center gap-2">
+                  <Receipt className="size-5 text-indigo-400" />
+                  Monthly Bills
+                </CardTitle>
+                <CardDescription className="text-zinc-400">Recurring billing cycles for this client.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="rounded-md border border-zinc-800 overflow-hidden">
+                  <Table>
+                    <TableHeader className="bg-zinc-950/50">
+                      <TableRow className="border-zinc-800 hover:bg-transparent">
+                        <TableHead className="text-zinc-400">Month</TableHead>
+                        <TableHead className="text-zinc-400">Project</TableHead>
+                        <TableHead className="text-zinc-400 text-right">Remaining</TableHead>
+                        <TableHead className="text-zinc-400 text-right">Status</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {invoices.map(inv => {
+                        const project = projects.find(p => p.id === inv.project_id)
+                        const remaining = Math.max(0, (Number(inv.amount) || 0) - (Number(inv.paid_amount) || 0))
+                        const isWaived = inv.status === 'Waived'
+                        return (
+                          <TableRow key={inv.id} className={cn("border-zinc-800 hover:bg-zinc-800/50", isWaived && "opacity-50")}>
+                            <TableCell className="text-zinc-300">{inv.billing_month}</TableCell>
+                            <TableCell className="text-zinc-300 truncate max-w-[140px]">{project?.name || 'N/A'}</TableCell>
+                            <TableCell className="text-right font-medium text-rose-400">
+                              {isWaived ? <span className="line-through text-zinc-500">৳ {remaining.toLocaleString()}</span> : remaining > 0 ? `৳ ${remaining.toLocaleString()}` : '-'}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <Badge variant="outline" className={
+                                inv.status === 'Paid' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
+                                inv.status === 'Partial' ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' :
+                                isWaived ? 'bg-zinc-800/50 text-zinc-500 border-zinc-700' :
+                                'bg-blue-500/10 text-blue-400 border-blue-500/20'
+                              }>
+                                {isWaived ? 'Written off' : inv.status}
+                              </Badge>
+                            </TableCell>
+                          </TableRow>
+                        )
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {adSupport.length > 0 && (
+            <Card className="bg-zinc-900 border-zinc-800">
+              <CardHeader>
+                <CardTitle className="text-zinc-100 flex items-center gap-2">
+                  <Globe className="size-5 text-cyan-400" />
+                  Ad Support
+                </CardTitle>
+                <CardDescription className="text-zinc-400">Dollar funding history for this client.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="rounded-md border border-zinc-800 overflow-hidden">
+                  <Table>
+                    <TableHeader className="bg-zinc-950/50">
+                      <TableRow className="border-zinc-800 hover:bg-transparent">
+                        <TableHead className="text-zinc-400">Date</TableHead>
+                        <TableHead className="text-zinc-400 text-right">USD</TableHead>
+                        <TableHead className="text-zinc-400 text-right">Paid</TableHead>
+                        <TableHead className="text-zinc-400 text-right">Due</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {adSupport.map(a => (
+                        <TableRow key={a.id} className="border-zinc-800 hover:bg-zinc-800/50">
+                          <TableCell className="text-zinc-300 text-sm">{new Date(a.date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</TableCell>
+                          <TableCell className="text-right text-zinc-100 font-medium">$ {(Number(a.dollar_amount) || 0).toLocaleString()}</TableCell>
+                          <TableCell className="text-right text-emerald-400">৳ {(Number(a.paid_amount) || 0).toLocaleString()}</TableCell>
+                          <TableCell className="text-right font-medium text-rose-400">
+                            {(Number(a.due_amount) || 0) > 0 ? `৳ ${(Number(a.due_amount) || 0).toLocaleString()}` : '-'}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      )}
     </div>
   )
 }

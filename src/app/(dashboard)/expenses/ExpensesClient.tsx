@@ -1,11 +1,12 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useMemo, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Plus, Download, Receipt, Edit2, Trash2, AlertCircle } from "lucide-react"
+import { Plus, Download, Receipt, Edit2, Trash2, AlertCircle, Search } from "lucide-react"
+import { TablePagination } from "@/components/ui/table-pagination"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -95,11 +96,47 @@ export function ExpensesClient({ initialExpenses, currentUser }: { initialExpens
     }
   }
 
-  const totalExpenses = initialExpenses.reduce((sum, exp) => sum + (Number(exp.amount) || 0), 0)
+  // ---- Search / filter / pagination ----
+  const PAGE_SIZE = 10
+  const [search, setSearch] = useState("")
+  const [categoryFilter, setCategoryFilter] = useState<string>("All")
+  const [monthFilter, setMonthFilter] = useState<string>("all")
+  const [page, setPage] = useState(1)
+
+  useEffect(() => { setPage(1) }, [search, categoryFilter, monthFilter])
+
+  const months = useMemo(() => {
+    const arr: { key: string; label: string }[] = []
+    const now = new Date()
+    for (let i = 0; i < 12; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
+      arr.push({
+        key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`,
+        label: d.toLocaleDateString("en-US", { month: "long", year: "numeric" }),
+      })
+    }
+    return arr
+  }, [])
+
+  const filteredExpenses = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    return initialExpenses.filter(exp => {
+      if (monthFilter !== "all" && !(exp.date || "").startsWith(monthFilter)) return false
+      if (categoryFilter !== "All" && exp.category !== categoryFilter) return false
+      if (!q) return true
+      return String(exp.description || "").toLowerCase().includes(q)
+    })
+  }, [initialExpenses, search, categoryFilter, monthFilter])
+
+  const pagedExpenses = filteredExpenses.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+  const isFiltered = search.trim() !== "" || categoryFilter !== "All" || monthFilter !== "all"
+
+  // Total card follows the active filters
+  const totalExpenses = filteredExpenses.reduce((sum, exp) => sum + (Number(exp.amount) || 0), 0)
 
   const handleExportCSV = () => {
     const headers = ['Date', 'Description', 'Category', 'Amount (BDT)']
-    const rows = initialExpenses.map(exp => [
+    const rows = filteredExpenses.map(exp => [
       exp.date,
       exp.description,
       exp.category,
@@ -127,7 +164,7 @@ export function ExpensesClient({ initialExpenses, currentUser }: { initialExpens
             variant="outline" 
             className="border-zinc-700 text-zinc-300 hover:bg-zinc-800 hover:text-white gap-2"
             onClick={handleExportCSV}
-            disabled={initialExpenses.length === 0}
+            disabled={filteredExpenses.length === 0}
           >
             <Download className="size-4" />
             Export
@@ -195,15 +232,58 @@ export function ExpensesClient({ initialExpenses, currentUser }: { initialExpens
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-white">৳ {totalExpenses.toLocaleString()}</div>
-            <p className="text-xs text-zinc-500 mt-1">All time</p>
+            <p className="text-xs text-zinc-500 mt-1">{isFiltered ? "Filtered results" : "All time"}</p>
           </CardContent>
         </Card>
       </div>
 
       <Card className="bg-zinc-900 border-zinc-800">
         <CardHeader>
-          <CardTitle className="text-zinc-100">Expense History</CardTitle>
-          <CardDescription className="text-zinc-400">Recent internal costs and operational expenses.</CardDescription>
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+            <div>
+              <CardTitle className="text-zinc-100">Expense History</CardTitle>
+              <CardDescription className="text-zinc-400">
+                {filteredExpenses.length} of {initialExpenses.length} shown.
+              </CardDescription>
+            </div>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <Select value={monthFilter} onValueChange={(v) => setMonthFilter(v || "all")}>
+                <SelectTrigger className="bg-zinc-950 border-zinc-800 text-zinc-100 w-full sm:w-[170px]">
+                  <SelectValue>
+                    {monthFilter === "all" ? "All months" : months.find(m => m.key === monthFilter)?.label || "All months"}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent className="bg-zinc-900 border-zinc-800 text-zinc-100 max-h-[280px]">
+                  <SelectItem value="all">All months</SelectItem>
+                  {months.map(m => (
+                    <SelectItem key={m.key} value={m.key}>{m.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select value={categoryFilter} onValueChange={(v) => setCategoryFilter(v || "All")}>
+                <SelectTrigger className="bg-zinc-950 border-zinc-800 text-zinc-100 w-full sm:w-[150px]">
+                  <SelectValue>{categoryFilter === "All" ? "All categories" : categoryFilter}</SelectValue>
+                </SelectTrigger>
+                <SelectContent className="bg-zinc-900 border-zinc-800 text-zinc-100">
+                  <SelectItem value="All">All categories</SelectItem>
+                  <SelectItem value="Rent">Rent</SelectItem>
+                  <SelectItem value="Software/IT">Software/IT</SelectItem>
+                  <SelectItem value="Marketing">Marketing & Ads</SelectItem>
+                  <SelectItem value="Payroll">Payroll</SelectItem>
+                  <SelectItem value="Other">Other</SelectItem>
+                </SelectContent>
+              </Select>
+              <div className="relative w-full sm:w-56">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-zinc-500" />
+                <Input
+                  placeholder="Search description..."
+                  className="pl-9 bg-zinc-950 border-zinc-800"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                />
+              </div>
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
           {initialExpenses.length === 0 ? (
@@ -211,6 +291,12 @@ export function ExpensesClient({ initialExpenses, currentUser }: { initialExpens
               <Receipt className="size-12 text-zinc-700 mx-auto mb-4" />
               <h3 className="text-lg font-semibold text-zinc-300 mb-1">No Expenses Recorded</h3>
               <p className="text-zinc-500 text-sm">Click "Record Expense" to add your first entry.</p>
+            </div>
+          ) : filteredExpenses.length === 0 ? (
+            <div className="text-center py-12">
+              <Search className="size-12 text-zinc-700 mx-auto mb-4" />
+              <h3 className="text-lg font-semibold text-zinc-300 mb-1">No Matches</h3>
+              <p className="text-zinc-500 text-sm">No expenses match your search/filter.</p>
             </div>
           ) : (
             <div className="rounded-md border border-zinc-800 overflow-hidden">
@@ -225,7 +311,7 @@ export function ExpensesClient({ initialExpenses, currentUser }: { initialExpens
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {initialExpenses.map((expense) => (
+                  {pagedExpenses.map((expense) => (
                     <TableRow key={expense.id} className="border-zinc-800 hover:bg-zinc-800/50 transition-colors">
                       <TableCell className="text-zinc-300">{formatDate(expense.date)}</TableCell>
                       <TableCell className="font-medium text-zinc-100">{expense.description}</TableCell>
@@ -266,6 +352,12 @@ export function ExpensesClient({ initialExpenses, currentUser }: { initialExpens
               </Table>
             </div>
           )}
+          <TablePagination
+            page={page}
+            pageSize={PAGE_SIZE}
+            totalItems={filteredExpenses.length}
+            onPageChange={setPage}
+          />
         </CardContent>
       </Card>
       {/* Edit Expense Dialog */}

@@ -11,23 +11,25 @@ export default async function AdSupportPage() {
   const [
     clientsRes,
     adSupportRes,
-    profilesRes
+    collectionsRes
   ] = await Promise.all([
     supabase.from('clients').select('*').order('company', { ascending: true }),
     supabase.from('ad_support').select('*').order('date', { ascending: false }),
-    supabase.from('profiles').select('*')
+    supabase.from('ad_support_payments').select('*').order('date', { ascending: false })
   ])
 
   const clients = clientsRes.data || []
   const adSupport = adSupportRes.data || []
-  const profiles = profilesRes.data || []
+  // Collection history is hidden until SUPABASE_AUDIT2_PATCH.sql is run
+  const collectionsEnabled = !collectionsRes.error
 
   return (
-    <AdSupportClient 
-      initialData={adSupport || []} 
-      clients={clients || []} 
+    <AdSupportClient
+      initialData={adSupport || []}
+      clients={clients || []}
       currentUser={currentUser}
-      users={profiles || []}
+      collections={collectionsRes.data || []}
+      collectionsEnabled={collectionsEnabled}
     />
   )
 }

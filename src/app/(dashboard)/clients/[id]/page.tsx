@@ -13,11 +13,15 @@ export default async function ClientProfilePage({ params }: { params: Promise<{ 
   const [
     { data: client },
     { data: projects = [] },
-    { data: ledgers = [] }
+    { data: ledgers = [] },
+    invoicesRes,
+    adSupportRes,
   ] = await Promise.all([
     supabase.from('clients').select('*').eq('id', clientId).single(),
     supabase.from('projects').select('*').eq('client_id', clientId).order('created_at', { ascending: false }),
-    supabase.from('ledgers').select('*').eq('client_id', clientId).order('created_at', { ascending: false })
+    supabase.from('ledgers').select('*').eq('client_id', clientId).order('created_at', { ascending: false }),
+    supabase.from('invoices').select('*').eq('client_id', clientId).order('period_start', { ascending: false }),
+    supabase.from('ad_support').select('*').eq('client_id', clientId).order('date', { ascending: false }),
   ])
 
   if (!client) {
@@ -25,11 +29,13 @@ export default async function ClientProfilePage({ params }: { params: Promise<{ 
   }
 
   return (
-    <ClientProfileClient 
-      client={client} 
+    <ClientProfileClient
+      client={client}
       projects={projects || []}
       ledgers={ledgers || []}
-      currentUser={currentUser} 
+      invoices={invoicesRes.data || []}
+      adSupport={adSupportRes.data || []}
+      currentUser={currentUser}
     />
   )
 }
