@@ -5,6 +5,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { ArrowLeft, User, Mail, Phone, GripVertical, Lock, MoreVertical } from "lucide-react"
 import { cn } from "@/lib/utils"
+import * as perm from "@/lib/permissions"
 import { updateClientStatus } from "@/app/actions/clients"
 import { toast } from "sonner"
 import {
@@ -23,16 +24,13 @@ type Status = (typeof STATUSES)[number]
 export function PipelineClient({ initialClients, currentUser, users }: { initialClients: any[], currentUser: any, users: any[] }) {
   const router = useRouter()
 
-  const isAdminOrManager = currentUser?.role === 'Admin' || currentUser?.role === 'Manager'
-  const isStaff = currentUser?.role === 'Staff'
+  const isAdminOrManager = perm.isAdminOrManager(currentUser)
+  const isStaff = perm.isStaffRole(currentUser)
 
   const clients = initialClients
 
-  const isOwnClient = (client: any) => client.created_by === currentUser?.id
-  const getOwnerName = (entity: any) => {
-    const owner = users.find(u => u.id === entity.created_by)
-    return owner?.name || 'Unknown'
-  }
+  const isOwnClient = (client: any) => perm.isOwner(client, currentUser)
+  const getOwnerName = (entity: any) => perm.getOwnerName(entity, users)
 
   const leads = clients.filter(c => c.status === 'Lead')
   const active = clients.filter(c => c.status === 'Active')

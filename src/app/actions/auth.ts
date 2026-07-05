@@ -1,6 +1,7 @@
 "use server"
 
 import { createClient } from "@/lib/supabase/server"
+import { getAuthContext } from "@/lib/auth"
 import { redirect } from "next/navigation"
 
 export async function login(formData: FormData) {
@@ -36,19 +37,14 @@ export async function logout() {
 }
 
 export async function getCurrentUser() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  // Reuses the request-cached auth context so layout + page don't each
+  // hit the database. Falls back to sign-out if the profile row is missing.
+  const { supabase, user, profile } = await getAuthContext()
 
   if (!user) return null
 
-  const { data: profile, error } = await supabase
-    .from('profiles')
-    .select('*')
-    .eq('id', user.id)
-    .single()
-
   // Auth user exists but profile missing — sign them out to avoid redirect loop
-  if (error || !profile) {
+  if (!profile) {
     await supabase.auth.signOut()
     return null
   }

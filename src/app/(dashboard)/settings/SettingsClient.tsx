@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { UserPlus, Shield, UserCog, User, Trash2, AlertTriangle, Key, Eye, EyeOff } from "lucide-react"
 import { toast } from "sonner"
+import { getInitials } from "@/lib/utils"
 import { updateUserRole, deleteUser, createTeamMember } from "@/app/actions/users"
 
 export function SettingsClient({ users, currentUser }: { users: any[], currentUser: any }) {
@@ -202,7 +203,13 @@ export function SettingsClient({ users, currentUser }: { users: any[], currentUs
                     <TableRow key={user.id} className="border-zinc-800 hover:bg-zinc-800/50 transition-colors">
                       <TableCell className="font-medium text-zinc-100">
                         <div className="flex items-center gap-3">
-                          <img src={user.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.name}`} alt={user.name} className="size-8 rounded-full bg-zinc-800" />
+                          {user.avatar_url ? (
+                            <img src={user.avatar_url} alt={user.name} className="size-8 rounded-full bg-zinc-800 object-cover" />
+                          ) : (
+                            <div className="size-8 rounded-full bg-indigo-500 flex items-center justify-center text-[10px] font-bold text-white shrink-0">
+                              {getInitials(user.name)}
+                            </div>
+                          )}
                           <span>{user.name}</span>
                         </div>
                       </TableCell>

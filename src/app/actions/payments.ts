@@ -18,6 +18,7 @@ const paymentSchema = z.object({
 
 const updatePaymentSchema = z.object({
   amount: z.coerce.number().positive("Amount must be greater than 0"),
+  method: z.string().trim().min(1, "Payment method is required"),
   payDate: z.string().trim().min(1, "Payment date is required"),
   billingMonth: z.string().trim().min(1, "Billing period is required"),
   nextPaymentDate: z
@@ -113,9 +114,10 @@ export async function recordPayment(formData: FormData) {
       paid_amount: newPaid,
       due_amount: newDue,
       status: newStatus,
-      next_payment_date: isFullyPaid
-        ? null
-        : (validatedData.nextPaymentDate || project.next_payment_date),
+      // Use exactly what the user entered. Falling back to the old
+      // project.next_payment_date kept a now-past date, which made the
+      // project show as permanently "Overdue" even after being paid.
+      next_payment_date: isFullyPaid ? null : validatedData.nextPaymentDate,
     }).eq('id', validatedData.projectId)
 
     if (pUpdateErr) throw pUpdateErr
@@ -137,6 +139,7 @@ export async function updatePayment(ledgerId: string, formData: FormData) {
 
     const validated = updatePaymentSchema.parse({
       amount: formData.get("amount"),
+      method: formData.get("method") || "Bank Transfer",
       payDate: formData.get("payDate") || "",
       billingMonth: formData.get("billingMonth") || "",
       nextPaymentDate: formData.get("nextPaymentDate") || null,
@@ -196,6 +199,7 @@ export async function updatePayment(ledgerId: string, formData: FormData) {
     // Keep the linked payment log in sync
     await supabase.from('payments').update({
       amount: validated.amount,
+      method: validated.method,
       date: validated.payDate,
       billing_period: validated.billingMonth,
     }).eq('ledger_id', ledgerId)
@@ -205,9 +209,7 @@ export async function updatePayment(ledgerId: string, formData: FormData) {
       paid_amount: newPaid,
       due_amount: newDue,
       status: newStatus,
-      next_payment_date: isFullyPaid
-        ? null
-        : (validated.nextPaymentDate || project.next_payment_date),
+      next_payment_date: isFullyPaid ? null : validated.nextPaymentDate,
     }).eq('id', project.id)
     if (pUpdateErr) throw pUpdateErr
 

@@ -15,6 +15,7 @@ import {
   DropdownMenuGroup,
 } from "@/components/ui/dropdown-menu"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { getInitials } from "@/lib/utils"
 import { logout } from "@/app/actions/auth"
 import { Sidebar } from "./Sidebar"
 
@@ -57,13 +58,7 @@ export function Header({ currentUser }: { currentUser: any }) {
     await logout()
   }
 
-  const initials =
-    currentUser?.name
-      ?.split(" ")
-      .map((n: string) => n[0])
-      .join("")
-      .toUpperCase()
-      .slice(0, 2) || "U"
+  const initials = getInitials(currentUser?.name)
 
   return (
     <>

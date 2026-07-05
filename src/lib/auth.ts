@@ -1,8 +1,12 @@
+import { cache } from "react"
 import { createClient } from "@/lib/supabase/server"
 
 export type Role = "Admin" | "Manager" | "Staff"
 
-export async function getAuthContext() {
+// Wrapped in React.cache so the auth check (auth.getUser + profile query)
+// runs at most once per request even though the layout AND the page both
+// call it. cache() is request-scoped, so there is no cross-request leakage.
+export const getAuthContext = cache(async function getAuthContext() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) {
@@ -21,7 +25,7 @@ export async function getAuthContext() {
     profile,
     role: (profile?.role as Role) ?? null,
   }
-}
+})
 
 export function isAdmin(role: Role | null) {
   return role === 'Admin'
@@ -38,13 +42,4 @@ export function canModifyOwned(
 ) {
   if (isManagerOrAbove(role)) return true
   return ownerId != null && ownerId === userId
-}
-
-export function escapeCsv(value: unknown): string {
-  if (value == null) return ''
-  const s = String(value)
-  if (/[",\n\r]/.test(s)) {
-    return `"${s.replace(/"/g, '""')}"`
-  }
-  return s
 }

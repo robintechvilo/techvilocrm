@@ -12,21 +12,24 @@ export default async function LedgerPage() {
     { data: clients = [] },
     { data: projects = [] },
     { data: ledgers = [] },
+    { data: payments = [] },
     { data: profiles = [] }
   ] = await Promise.all([
     supabase.from('clients').select('*').order('company', { ascending: true }),
     supabase.from('projects').select('*').order('created_at', { ascending: false }),
     supabase.from('ledgers').select('*').order('created_at', { ascending: false }),
+    supabase.from('payments').select('*'),
     supabase.from('profiles').select('*')
   ])
 
   return (
-    <PaymentsClient 
-      clients={clients || []} 
+    <PaymentsClient
+      clients={clients || []}
       projects={projects || []}
       users={profiles || []}
       ledgers={ledgers || []}
-      currentUser={currentUser} 
+      payments={payments || []}
+      currentUser={currentUser}
     />
   )
 }

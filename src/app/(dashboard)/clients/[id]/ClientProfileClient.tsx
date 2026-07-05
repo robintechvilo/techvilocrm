@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { ArrowLeft, Mail, Phone, Building2, Briefcase, CreditCard, Clock } from "lucide-react"
 import { cn } from "@/lib/utils"
+import * as perm from "@/lib/permissions"
 
 export function ClientProfileClient({ 
   client, 
@@ -21,14 +22,15 @@ export function ClientProfileClient({
 }) {
   const router = useRouter()
   
-  const isAdminOrManager = currentUser?.role === 'Admin' || currentUser?.role === 'Manager'
-  const isOwner = client.created_by === currentUser?.id
-  
-  const canSeeFinance = isAdminOrManager || isOwner
+  const canSeeFinance = perm.canControl(client, currentUser)
 
-  const totalProjectValue = ledgers.reduce((sum, p) => sum + (Number(p.total_amount) || 0), 0)
-  const totalPaid = ledgers.reduce((sum, p) => sum + (Number(p.paid_amount) || 0), 0)
-  const totalDue = ledgers.reduce((sum, p) => sum + (Number(p.due_amount) || 0), 0)
+  // Derive lifetime figures from the projects (which hold the running
+  // totals), NOT from ledger rows. Each partial payment writes a ledger row
+  // carrying the full project amount, so summing ledger.total_amount counted
+  // the same project value multiple times.
+  const totalProjectValue = projects.reduce((sum, p) => sum + (Number(p.amount) || 0), 0)
+  const totalPaid = projects.reduce((sum, p) => sum + (Number(p.paid_amount) || 0), 0)
+  const totalDue = projects.reduce((sum, p) => sum + (Number(p.due_amount) || 0), 0)
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">

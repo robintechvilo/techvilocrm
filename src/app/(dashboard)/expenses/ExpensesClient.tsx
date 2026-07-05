@@ -12,9 +12,9 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { addExpense, updateExpense, deleteExpense } from "@/app/actions/expenses"
 import { toast } from "sonner"
-import { cn, formatDate } from "@/lib/utils"
+import { cn, formatDate, escapeCsv } from "@/lib/utils"
+import * as perm from "@/lib/permissions"
 import { buttonVariants } from "@/components/ui/button"
-import { escapeCsv } from "@/lib/auth"
 
 export function ExpensesClient({ initialExpenses, currentUser }: { initialExpenses: any[], currentUser: any }) {
   const [isDialogOpen, setIsDialogOpen] = useState(false)
@@ -23,7 +23,7 @@ export function ExpensesClient({ initialExpenses, currentUser }: { initialExpens
   const [editCategory, setEditCategory] = useState<string>("Other")
   const [deleteExpenseId, setDeleteExpenseId] = useState<string | null>(null)
 
-  const canManage = currentUser?.role === 'Admin' || currentUser?.role === 'Manager'
+  const canManage = perm.isAdminOrManager(currentUser)
 
   if (!canManage) {
     return (

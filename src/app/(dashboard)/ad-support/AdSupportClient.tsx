@@ -42,6 +42,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { recordAdSupport, updateAdSupport, deleteAdSupport } from "@/app/actions/ad_support"
 import { toast } from "sonner"
+import * as perm from "@/lib/permissions"
 import { buttonVariants } from "@/components/ui/button"
 
 interface AdSupportClientProps {
@@ -61,7 +62,7 @@ export function AdSupportClient({ initialData, clients, currentUser }: AdSupport
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
-  const canManage = currentUser?.role === 'Admin' || currentUser?.role === 'Manager'
+  const canManage = perm.isAdminOrManager(currentUser)
 
   const filteredData = initialData.filter(item => {
     const client = clients.find(c => c.id === item.client_id)
@@ -325,7 +326,7 @@ export function AdSupportClient({ initialData, clients, currentUser }: AdSupport
               <TableBody>
                 {filteredData.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center text-zinc-500 py-10">
+                    <TableCell colSpan={8} className="text-center text-zinc-500 py-10">
                       No records found.
                     </TableCell>
                   </TableRow>

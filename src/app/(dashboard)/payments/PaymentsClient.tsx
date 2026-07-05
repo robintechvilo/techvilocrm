@@ -10,27 +10,29 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { cn, formatDate } from "@/lib/utils"
+import { cn, formatDate, escapeCsv } from "@/lib/utils"
+import * as perm from "@/lib/permissions"
 import { toast } from "sonner"
 import { recordPayment, updatePayment, deletePayment } from "@/app/actions/payments"
 import { buttonVariants } from "@/components/ui/button"
-import { escapeCsv } from "@/lib/auth"
 
-export function PaymentsClient({ 
-  clients, 
-  projects, 
-  users, 
-  ledgers, 
-  currentUser 
-}: { 
-  clients: any[], 
-  projects: any[], 
-  users: any[], 
-  ledgers: any[], 
-  currentUser: any 
+export function PaymentsClient({
+  clients,
+  projects,
+  users,
+  ledgers,
+  payments,
+  currentUser
+}: {
+  clients: any[],
+  projects: any[],
+  users: any[],
+  ledgers: any[],
+  payments: any[],
+  currentUser: any
 }) {
-  const isAdminOrManager = currentUser?.role === 'Admin' || currentUser?.role === 'Manager'
-  const isStaff = currentUser?.role === 'Staff'
+  const isAdminOrManager = perm.isAdminOrManager(currentUser)
+  const isStaff = perm.isStaffRole(currentUser)
 
   const activeClients = clients.filter(c => c.status === 'Active' || c.status === 'Lead')
   const [selectedClientId, setSelectedClientId] = useState<string | null>(activeClients.length > 0 ? activeClients[0].id : null)
@@ -44,11 +46,8 @@ export function PaymentsClient({
   const selectedClient = clients.find(c => c.id === selectedClientId)
   const clientLedger = ledgers.filter(l => l.client_id === selectedClientId)
 
-  const isOwnClient = (client: any) => client.created_by === currentUser?.id
-  const getOwnerName = (entity: any) => {
-    const owner = users.find(u => u.id === entity.created_by)
-    return owner?.name || 'Unknown'
-  }
+  const isOwnClient = (client: any) => perm.isOwner(client, currentUser)
+  const getOwnerName = (entity: any) => perm.getOwnerName(entity, users)
   const canRecordPayment = selectedClient ? (isAdminOrManager || isOwnClient(selectedClient)) : false
 
   const clientProjects = useMemo(() => {
@@ -305,19 +304,38 @@ export function PaymentsClient({
                 {(() => {
                   const entryToEdit = clientLedger.find(l => l.id === editLedgerId)
                   if (!entryToEdit) return null
+                  const linkedPayment = payments.find(p => p.ledger_id === entryToEdit.id)
                   return (
                     <div className="grid gap-4 py-4">
-                      <div className="grid grid-cols-4 items-center gap-4">
-                        <Label className="text-right text-zinc-300">Amount Paid</Label>
-                        <div className="col-span-3 relative">
-                          <span className="absolute left-3 top-2.5 text-zinc-500">৳</span>
-                          <Input 
-                            name="amount" 
-                            type="number" 
-                            defaultValue={entryToEdit.paid_amount}
-                            className="pl-7 bg-zinc-900 border-zinc-800 text-emerald-400 font-medium" 
-                            required 
-                          />
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="grid gap-2">
+                          <Label className="text-zinc-300">Amount Paid</Label>
+                          <div className="relative">
+                            <span className="absolute left-3 top-2.5 text-zinc-500">৳</span>
+                            <Input
+                              name="amount"
+                              type="number"
+                              defaultValue={entryToEdit.paid_amount}
+                              className="pl-7 bg-zinc-900 border-zinc-800 text-emerald-400 font-medium"
+                              required
+                            />
+                          </div>
+                        </div>
+                        <div className="grid gap-2">
+                          <Label className="text-zinc-300">Payment Method</Label>
+                          <Select name="method" defaultValue={linkedPayment?.method || "Bank Transfer"}>
+                            <SelectTrigger className="bg-zinc-900 border-zinc-800 text-zinc-100">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent className="bg-zinc-900 border-zinc-800 text-zinc-100">
+                              <SelectItem value="Bank Transfer">Bank Transfer</SelectItem>
+                              <SelectItem value="bKash">bKash</SelectItem>
+                              <SelectItem value="Nagad">Nagad</SelectItem>
+                              <SelectItem value="Cash">Cash</SelectItem>
+                              <SelectItem value="Cheque">Cheque</SelectItem>
+                              <SelectItem value="Online Payment">Online Payment</SelectItem>
+                            </SelectContent>
+                          </Select>
                         </div>
                       </div>
                       <div className="grid grid-cols-2 gap-4">

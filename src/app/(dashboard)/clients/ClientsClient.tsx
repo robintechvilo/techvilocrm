@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import Link from "next/link"
 import { cn } from "@/lib/utils"
+import * as perm from "@/lib/permissions"
 import { toast } from "sonner"
 import { addClient, updateClient, deleteClient } from "@/app/actions/clients"
 import { buttonVariants } from "@/components/ui/button"
@@ -23,14 +24,11 @@ export function ClientsClient({ initialClients, currentUser, users }: { initialC
   const [editClientStatus, setEditClientStatus] = useState<string>("Lead")
   const [deleteClientId, setDeleteClientId] = useState<string | null>(null)
 
-  const isAdminOrManager = currentUser?.role === 'Admin' || currentUser?.role === 'Manager'
-  const isStaff = currentUser?.role === 'Staff'
-  
-  const isOwnClient = (client: any) => client.created_by === currentUser?.id
-  const getOwnerName = (entity: any) => {
-    const owner = users.find(u => u.id === entity.created_by)
-    return owner?.name || 'Unknown'
-  }
+  const isAdminOrManager = perm.isAdminOrManager(currentUser)
+  const isStaff = perm.isStaffRole(currentUser)
+
+  const isOwnClient = (client: any) => perm.isOwner(client, currentUser)
+  const getOwnerName = (entity: any) => perm.getOwnerName(entity, users)
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()

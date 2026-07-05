@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { cn, formatDate } from "@/lib/utils"
+import * as perm from "@/lib/permissions"
 import { toast } from "sonner"
 import { addProject, updateProject, deleteProject } from "@/app/actions/projects"
 import { recordPayment } from "@/app/actions/payments"
@@ -52,19 +53,16 @@ export function ProjectsClient({
   const [editBilling, setEditBilling] = useState<string>("")
   const [editStatus, setEditStatus] = useState<string>("")
 
-  const isAdminOrManager = currentUser?.role === 'Admin' || currentUser?.role === 'Manager'
-  const isStaff = currentUser?.role === 'Staff'
-  
+  const isAdminOrManager = perm.isAdminOrManager(currentUser)
+  const isStaff = perm.isStaffRole(currentUser)
+
   const projects = initialProjects
   const clients = isAdminOrManager
     ? initialClients
     : initialClients.filter(c => c.created_by === currentUser?.id)
 
-  const isOwnProject = (project: any) => project.created_by === currentUser?.id
-  const getOwnerName = (entity: any) => {
-    const owner = users.find(u => u.id === entity.created_by)
-    return owner?.name || 'Unknown'
-  }
+  const isOwnProject = (project: any) => perm.isOwner(project, currentUser)
+  const getOwnerName = (entity: any) => perm.getOwnerName(entity, users)
   const getClientLabel = (clientId: string) => {
     const c = initialClients.find(c => c.id === clientId)
     return c ? `${c.name} (${c.company})` : 'Select client'

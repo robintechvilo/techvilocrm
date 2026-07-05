@@ -15,7 +15,7 @@ import {
   Globe,
   User as UserIcon,
 } from "lucide-react"
-import { cn } from "@/lib/utils"
+import { cn, getInitials } from "@/lib/utils"
 import { logout } from "@/app/actions/auth"
 
 type Role = "Admin" | "Manager" | "Staff"
@@ -85,11 +85,17 @@ export function Sidebar({ currentUser, onNavigate }: { currentUser: any; onNavig
       <div className="p-4 border-t border-zinc-800 space-y-3">
         <div className="rounded-xl bg-gradient-to-br from-indigo-500/10 to-purple-600/10 border border-indigo-500/20 p-3">
           <div className="flex items-center gap-3 mb-3">
-            <img
-              src={currentUser?.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${currentUser?.name || 'User'}`}
-              alt=""
-              className="size-8 rounded-full bg-zinc-800 ring-2 ring-indigo-500/20"
-            />
+            {currentUser?.avatar_url ? (
+              <img
+                src={currentUser.avatar_url}
+                alt=""
+                className="size-8 rounded-full bg-zinc-800 ring-2 ring-indigo-500/20 object-cover"
+              />
+            ) : (
+              <div className="size-8 rounded-full bg-indigo-500 ring-2 ring-indigo-500/20 flex items-center justify-center text-[10px] font-bold text-white shrink-0">
+                {getInitials(currentUser?.name)}
+              </div>
+            )}
             <div className="min-w-0">
               <p className="text-xs font-bold text-white truncate">{currentUser?.name}</p>
               <p className="text-[10px] text-zinc-500 truncate">{currentUser?.role}</p>
