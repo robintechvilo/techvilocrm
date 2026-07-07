@@ -23,8 +23,9 @@ export default async function ProjectsPage() {
   ] = await Promise.all([
     projectsQuery,
     supabase.from('clients').select('*').order('company', { ascending: true }),
-    supabase.from('ledgers').select('*').order('created_at', { ascending: false }),
-    supabase.from('profiles').select('*')
+    // Ledgers feed only the per-project payment-history dialog
+    supabase.from('ledgers').select('id, project_id, pay_date, payment_month, paid_amount, status').order('created_at', { ascending: false }),
+    supabase.from('profiles').select('id, name')
   ])
 
   return (

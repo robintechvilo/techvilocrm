@@ -17,16 +17,17 @@ export default async function DashboardPage() {
 
   if (!currentUser) return null
 
-  const [clientsRes, projectsRes, ledgersRes, expensesRes, adSupportRes, invoicesRes] = await Promise.all([
+  // One parallel round-trip for everything — a sequential extra query here
+  // directly adds ~200-400ms TTFB on Vercel↔Supabase latency.
+  const [clientsRes, projectsRes, ledgersRes, expensesRes, adSupportRes, invoicesRes, tasksRes] = await Promise.all([
     supabase.from("clients").select("*").order("created_at", { ascending: false }),
     supabase.from("projects").select("*").order("created_at", { ascending: false }),
     supabase.from("ledgers").select("*").order("created_at", { ascending: false }),
     supabase.from("expenses").select("*").order("date", { ascending: false }),
     supabase.from("ad_support").select("*").order("date", { ascending: false }),
     supabase.from("invoices").select("*"), // empty until billing migration runs
+    supabase.from("tasks").select("*"),    // empty until tasks migration runs
   ])
-  // Separate: tasks table may not exist yet — tolerate the error
-  const tasksRes = await supabase.from("tasks").select("*")
 
   const clients = clientsRes.data || []
   const projects = projectsRes.data || []

@@ -13,9 +13,10 @@ export default async function AdSupportPage() {
     adSupportRes,
     collectionsRes
   ] = await Promise.all([
-    supabase.from('clients').select('*').order('company', { ascending: true }),
+    // Only what the table + dialogs display
+    supabase.from('clients').select('id, name, company').order('company', { ascending: true }),
     supabase.from('ad_support').select('*').order('date', { ascending: false }),
-    supabase.from('ad_support_payments').select('*').order('date', { ascending: false })
+    supabase.from('ad_support_payments').select('id, ad_support_id, amount, method, date, note').order('date', { ascending: false })
   ])
 
   const clients = clientsRes.data || []

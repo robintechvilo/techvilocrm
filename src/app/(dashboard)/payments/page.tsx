@@ -9,10 +9,6 @@ export default async function LedgerPage() {
 
   if (!currentUser) return null
 
-  // Lazily open this month's bills for active recurring projects.
-  // No-op until the billing migration has been run.
-  await ensureMonthlyInvoices()
-
   // Staff see only their own clients/projects here — ledgers, payments and
   // invoices are already scoped to the owner by RLS.
   const isStaff = currentUser.role === 'Staff'
@@ -22,6 +18,13 @@ export default async function LedgerPage() {
     clientsQuery = clientsQuery.eq('created_by', currentUser.id)
     projectsQuery = projectsQuery.eq('created_by', currentUser.id)
   }
+
+  // Lazily open this month's bills (no-op until the billing migration runs).
+  // Only the invoices read waits for it — everything else loads in parallel,
+  // instead of the whole page stalling behind the RPC round-trip.
+  const invoicesPromise = ensureMonthlyInvoices().then(() =>
+    supabase.from('invoices').select('*').order('period_start', { ascending: false })
+  )
 
   const [
     { data: clients = [] },
@@ -34,9 +37,10 @@ export default async function LedgerPage() {
     clientsQuery,
     projectsQuery,
     supabase.from('ledgers').select('*').order('created_at', { ascending: false }),
-    supabase.from('payments').select('*'),
-    supabase.from('profiles').select('*'),
-    supabase.from('invoices').select('*').order('period_start', { ascending: false }),
+    // Only the columns the UI actually reads — smaller payload, faster render
+    supabase.from('payments').select('id, ledger_id, method'),
+    supabase.from('profiles').select('id, name'),
+    invoicesPromise,
   ])
 
   // Billing UI stays hidden until the invoices table exists.

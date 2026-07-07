@@ -13,7 +13,8 @@ export default async function PipelinePage() {
     { data: profiles = [] }
   ] = await Promise.all([
     supabase.from('clients').select('*').order('created_at', { ascending: false }),
-    supabase.from('profiles').select('*')
+    // Only used for the "Owner" name lookup
+    supabase.from('profiles').select('id, name')
   ])
 
   return (
