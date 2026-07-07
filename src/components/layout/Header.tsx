@@ -26,6 +26,7 @@ const PAGES = [
   { name: "Clients", href: "/clients", roles: ["Admin", "Manager", "Staff"] },
   { name: "Pipeline", href: "/clients/pipeline", roles: ["Admin", "Manager", "Staff"] },
   { name: "Projects", href: "/projects", roles: ["Admin", "Manager", "Staff"] },
+  { name: "Tasks", href: "/tasks", roles: ["Admin", "Manager", "Staff"] },
   { name: "Payments", href: "/payments", roles: ["Admin", "Manager", "Staff"] },
   { name: "Ad Support", href: "/ad-support", roles: ["Admin", "Manager", "Staff"] },
   { name: "Invoices", href: "/invoices", roles: ["Admin", "Manager", "Staff"] },

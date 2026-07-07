@@ -14,6 +14,7 @@ import {
   LogOut,
   Globe,
   FileText,
+  ClipboardList,
   User as UserIcon,
 } from "lucide-react"
 import { cn, getInitials } from "@/lib/utils"
@@ -26,6 +27,7 @@ const navigation = [
   { name: 'Clients',       href: '/clients',           icon: Users,           roles: ['Admin', 'Manager', 'Staff'] as Role[] },
   { name: 'Pipeline',      href: '/clients/pipeline',  icon: Kanban,          roles: ['Admin', 'Manager', 'Staff'] as Role[] },
   { name: 'Projects',      href: '/projects',          icon: Briefcase,       roles: ['Admin', 'Manager', 'Staff'] as Role[] },
+  { name: 'Tasks',         href: '/tasks',             icon: ClipboardList,   roles: ['Admin', 'Manager', 'Staff'] as Role[] },
   { name: 'Payments',      href: '/payments',          icon: CreditCard,      roles: ['Admin', 'Manager', 'Staff'] as Role[] },
   { name: 'Ad Support',    href: '/ad-support',        icon: Globe,           roles: ['Admin', 'Manager', 'Staff'] as Role[] },
   { name: 'Invoices',      href: '/invoices',          icon: FileText,        roles: ['Admin', 'Manager', 'Staff'] as Role[] },

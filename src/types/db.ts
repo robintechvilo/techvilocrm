@@ -43,6 +43,28 @@ export interface ClientInvoice {
   updated_at: string
 }
 
+export type TaskStatus = "To Do" | "Doing" | "Done"
+export type TaskPriority = "Low" | "Medium" | "High" | "Urgent"
+
+// Kanban work items (multi-assignee, checklist, client link)
+export interface Task {
+  id: string
+  title: string
+  description: string | null
+  client_id: string | null
+  project_id: string | null
+  assigned_to: string[]
+  status: TaskStatus
+  priority: TaskPriority
+  start_date: string | null
+  due_date: string | null
+  checklist: Array<{ text: string; done: boolean }>
+  completed_at: string | null
+  created_by: string | null
+  created_at: string
+  updated_at: string
+}
+
 export interface CompanySettings {
   id: number
   name: string
