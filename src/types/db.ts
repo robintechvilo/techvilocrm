@@ -65,6 +65,14 @@ export interface Task {
   updated_at: string
 }
 
+export interface TaskComment {
+  id: string
+  task_id: string
+  body: string
+  created_by: string | null
+  created_at: string
+}
+
 export interface CompanySettings {
   id: number
   name: string

@@ -6,6 +6,7 @@ import { getCurrentUser } from "@/app/actions/auth"
 import { HeroBar, type Achievement } from "./HeroBar"
 import { PrimaryKPIs } from "./PrimaryKPIs"
 import { ActionCenter } from "./ActionCenter"
+import { MyTasksToday } from "./MyTasksToday"
 import { MonthlyReport } from "./MonthlyReport"
 import { InsightsSection } from "./InsightsSection"
 import { RecentActivity } from "./RecentActivity"
@@ -24,6 +25,8 @@ export default async function DashboardPage() {
     supabase.from("ad_support").select("*").order("date", { ascending: false }),
     supabase.from("invoices").select("*"), // empty until billing migration runs
   ])
+  // Separate: tasks table may not exist yet — tolerate the error
+  const tasksRes = await supabase.from("tasks").select("*")
 
   const clients = clientsRes.data || []
   const projects = projectsRes.data || []
@@ -31,6 +34,7 @@ export default async function DashboardPage() {
   const expenses = expensesRes.data || []
   const adSupport = adSupportRes.data || []
   const invoices = invoicesRes.data || []
+  const tasks = tasksRes.data || []
 
   // ================================
   // STAFF DASHBOARD
@@ -134,12 +138,15 @@ export default async function DashboardPage() {
           </Card>
         </div>
 
+        <MyTasksToday tasks={tasks} clients={clients} userId={currentUser.id} />
+
         <ActionCenter
           clients={clients}
           projects={projects}
           ledgers={ledgers}
           adSupport={adSupport}
           invoices={invoices}
+          tasks={tasks}
           isStaffView
           currentUserId={currentUser.id}
         />
@@ -303,7 +310,9 @@ export default async function DashboardPage() {
         adSupportDue={adSupportDue}
       />
 
-      <ActionCenter clients={clients} projects={projects} ledgers={ledgers} adSupport={adSupport} invoices={invoices} />
+      <MyTasksToday tasks={tasks} clients={clients} userId={currentUser.id} />
+
+      <ActionCenter clients={clients} projects={projects} ledgers={ledgers} adSupport={adSupport} invoices={invoices} tasks={tasks} />
 
       <MonthlyReport
         ledgers={ledgers}

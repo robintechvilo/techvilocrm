@@ -211,6 +211,66 @@ export async function updateTaskChecklist(taskId: string, checklistJson: string)
   }
 }
 
+// ---- Comment thread ----
+
+export async function addTaskComment(taskId: string, body: string) {
+  try {
+    const text = z.string().trim().min(1, "Write something first").max(2000).parse(body)
+    const { supabase, user, role } = await getAuthContext()
+    if (!user) return { success: false, error: "Unauthorized" }
+
+    const { data: task } = await supabase.from("tasks").select("*").eq("id", taskId).single()
+    if (!task) return { success: false, error: "Task not found" }
+    if (!canWork(task, user.id, role)) {
+      return { success: false, error: "This task is not assigned to you" }
+    }
+
+    const { error } = await supabase.from("task_comments").insert({
+      task_id: taskId,
+      body: text,
+      created_by: user.id,
+    })
+    if (error) {
+      if (error.code === "42P01") {
+        return { success: false, error: "Comments table missing — run SUPABASE_TASKS_PHASE2.sql first" }
+      }
+      throw error
+    }
+
+    revalidatePath("/tasks")
+    return { success: true }
+  } catch (error: any) {
+    console.error("Failed to add comment:", error)
+    return { success: false, error: error?.message || "Failed to add comment" }
+  }
+}
+
+export async function deleteTaskComment(commentId: string) {
+  try {
+    const { supabase, user, role } = await getAuthContext()
+    if (!user) return { success: false, error: "Unauthorized" }
+
+    const { data: comment } = await supabase
+      .from("task_comments")
+      .select("*")
+      .eq("id", commentId)
+      .single()
+    if (!comment) return { success: false, error: "Comment not found" }
+    if (!isManagerOrAbove(role) && comment.created_by !== user.id) {
+      return { success: false, error: "You can only delete your own comments" }
+    }
+
+    const { error } = await supabase.from("task_comments").delete().eq("id", commentId)
+    if (error) throw error
+
+    revalidatePath("/tasks")
+    return { success: true }
+  } catch (error: any) {
+    console.error("Failed to delete comment:", error)
+    return { success: false, error: error?.message || "Failed to delete comment" }
+  }
+}
+
 export async function deleteTask(taskId: string) {
   try {
     const { supabase, user, role } = await getAuthContext()

@@ -17,9 +17,10 @@ export default async function TasksPage() {
     projectsQuery = projectsQuery.eq("created_by", currentUser.id)
   }
 
-  const [tasksRes, { data: clients = [] }, { data: projects = [] }, { data: profiles = [] }] =
+  const [tasksRes, commentsRes, { data: clients = [] }, { data: projects = [] }, { data: profiles = [] }] =
     await Promise.all([
       supabase.from("tasks").select("*").order("created_at", { ascending: false }),
+      supabase.from("task_comments").select("*").order("created_at", { ascending: true }),
       clientsQuery,
       projectsQuery,
       supabase.from("profiles").select("id, name, role"),
@@ -31,6 +32,7 @@ export default async function TasksPage() {
   return (
     <TasksClient
       tasks={tasksRes.data || []}
+      comments={commentsRes.data || []}
       clients={clients || []}
       projects={projects || []}
       users={profiles || []}

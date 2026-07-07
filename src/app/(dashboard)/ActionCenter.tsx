@@ -17,6 +17,7 @@ type Props = {
   ledgers: any[]
   adSupport?: any[]
   invoices?: any[]
+  tasks?: any[]
   isStaffView?: boolean
   currentUserId?: string
 }
@@ -36,7 +37,7 @@ type ActionItem = {
   days: number
 }
 
-export function ActionCenter({ clients, projects, ledgers, adSupport = [], invoices = [], isStaffView, currentUserId }: Props) {
+export function ActionCenter({ clients, projects, ledgers, adSupport = [], invoices = [], tasks = [], isStaffView, currentUserId }: Props) {
   const today = new Date()
   today.setHours(0, 0, 0, 0)
   const weekFromNow = new Date(today)
@@ -55,6 +56,10 @@ export function ActionCenter({ clients, projects, ledgers, adSupport = [], invoi
   const scopedInvoices = isStaffView && currentUserId
     ? invoices.filter((i) => i.created_by === currentUserId)
     : invoices
+  const scopedTasks = isStaffView && currentUserId
+    ? tasks.filter((t) =>
+        (t.assigned_to || []).includes(currentUserId) || t.created_by === currentUserId)
+    : tasks
 
   const companyOf = (clientId: string) =>
     clients.find((c) => c.id === clientId)?.company || "Unknown"
@@ -147,6 +152,29 @@ export function ActionCenter({ clients, projects, ledgers, adSupport = [], invoi
     }
   }
 
+  // 1d. Tasks — due_date based (amount-less items)
+  for (const t of scopedTasks) {
+    if (t.status === "Done") continue
+    const d = parseDate(t.due_date)
+    if (!d) continue
+    const company = t.client_id ? companyOf(t.client_id) : "Internal"
+    if (d < today) {
+      const days = daysBetween(t.due_date, today)
+      overdueItems.push({
+        title: t.title, sub: `Task · ${company}`,
+        amount: 0, meta: `${days}d overdue`,
+        href: "/tasks", days,
+      })
+    } else if (d <= weekFromNow) {
+      const days = daysUntil(d)
+      upcomingItems.push({
+        title: t.title, sub: `Task · ${company}`,
+        amount: 0, meta: days === 0 ? "Today" : `in ${days}d`,
+        href: "/tasks", days,
+      })
+    }
+  }
+
   const overdue = overdueItems.sort((a, b) => b.days - a.days)
   const upcoming = upcomingItems.sort((a, b) => a.days - b.days)
 
@@ -198,11 +226,11 @@ export function ActionCenter({ clients, projects, ledgers, adSupport = [], invoi
           title="Overdue"
           icon={AlertTriangle}
           count={overdue.length}
-          subtitle="Projects, bills & ad support"
+          subtitle="Payments, bills, ads & tasks"
           items={overdue.slice(0, 4).map((it) => ({
             title: it.title,
             sub: it.sub,
-            amount: `৳${it.amount.toLocaleString()}`,
+            amount: it.amount > 0 ? `৳${it.amount.toLocaleString()}` : "",
             meta: it.meta,
             href: it.href,
           }))}
@@ -220,7 +248,7 @@ export function ActionCenter({ clients, projects, ledgers, adSupport = [], invoi
           items={upcoming.slice(0, 4).map((it) => ({
             title: it.title,
             sub: it.sub,
-            amount: `৳${it.amount.toLocaleString()}`,
+            amount: it.amount > 0 ? `৳${it.amount.toLocaleString()}` : "",
             meta: it.meta,
             href: it.href,
           }))}

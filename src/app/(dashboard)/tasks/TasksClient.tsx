@@ -19,11 +19,15 @@ import {
 import {
   Plus, Search, ClipboardList, CalendarDays, Building2, Trash2,
   AlertCircle, MoreVertical, GripVertical, CheckSquare, X, Lock,
+  MessageSquare, Send,
 } from "lucide-react"
 import { toast } from "sonner"
 import { cn, formatDate, getInitials } from "@/lib/utils"
 import * as perm from "@/lib/permissions"
-import { createTask, updateTask, updateTaskStatus, updateTaskChecklist, deleteTask } from "@/app/actions/tasks"
+import {
+  createTask, updateTask, updateTaskStatus, updateTaskChecklist, deleteTask,
+  addTaskComment, deleteTaskComment,
+} from "@/app/actions/tasks"
 
 const STATUSES = ["To Do", "Doing", "Done"] as const
 type Status = (typeof STATUSES)[number]
@@ -47,6 +51,7 @@ type ChecklistItem = { text: string; done: boolean }
 
 export function TasksClient({
   tasks,
+  comments,
   clients,
   projects,
   users,
@@ -54,6 +59,7 @@ export function TasksClient({
   setupNeeded,
 }: {
   tasks: any[]
+  comments: any[]
   clients: any[]
   projects: any[]
   users: any[]
@@ -165,6 +171,31 @@ export function TasksClient({
   const [fDueDate, setFDueDate] = useState<string>("")
   const [fChecklist, setFChecklist] = useState<ChecklistItem[]>([])
   const [newItemText, setNewItemText] = useState("")
+  const [commentText, setCommentText] = useState("")
+  const [sendingComment, setSendingComment] = useState(false)
+
+  // Live comment thread for the open task (props update after revalidate)
+  const taskComments = editing ? comments.filter(c => c.task_id === editing.id) : []
+
+  const submitComment = async () => {
+    if (!editing || !commentText.trim()) return
+    setSendingComment(true)
+    const res = await addTaskComment(editing.id, commentText.trim())
+    if (res.success) {
+      setCommentText("")
+    } else {
+      toast.error(res.error || "Failed to add comment")
+    }
+    setSendingComment(false)
+  }
+
+  const removeComment = async (commentId: string) => {
+    const res = await deleteTaskComment(commentId)
+    if (!res.success) toast.error(res.error || "Failed to delete comment")
+  }
+
+  const commentTime = (iso: string) =>
+    new Date(iso).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })
 
   useEffect(() => {
     if (editorTask === null) return
@@ -185,6 +216,7 @@ export function TasksClient({
       setFDueDate(editing.due_date || "")
       setFChecklist(Array.isArray(editing.checklist) ? editing.checklist : [])
       setNewItemText("")
+      setCommentText("")
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editorTask])
@@ -755,6 +787,73 @@ export function TasksClient({
                 </div>
               )}
             </div>
+
+            {/* Comment thread — existing tasks only */}
+            {!isNew && editing && (
+              <div className="grid gap-2 pt-3 border-t border-zinc-800">
+                <Label className="text-zinc-300 flex items-center gap-2">
+                  <MessageSquare className="size-3.5 text-indigo-400" />
+                  Comments
+                  {taskComments.length > 0 && (
+                    <span className="text-zinc-500 text-xs font-normal">{taskComments.length}</span>
+                  )}
+                </Label>
+
+                {taskComments.length > 0 && (
+                  <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1 custom-scrollbar">
+                    {taskComments.map((c) => {
+                      const canDeleteComment = isManager || c.created_by === currentUser?.id
+                      return (
+                        <div key={c.id} className="flex items-start gap-2 group/comment">
+                          <span className="size-6 rounded-full bg-indigo-500 flex items-center justify-center text-[9px] font-bold text-white shrink-0 mt-0.5">
+                            {getInitials(userName(c.created_by))}
+                          </span>
+                          <div className="flex-1 min-w-0 rounded-lg bg-zinc-900 border border-zinc-800 px-3 py-2">
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="text-xs font-semibold text-zinc-200">
+                                {userName(c.created_by)}
+                                <span className="text-zinc-600 font-normal ml-2">{commentTime(c.created_at)}</span>
+                              </p>
+                              {canDeleteComment && (
+                                <button
+                                  type="button"
+                                  onClick={() => removeComment(c.id)}
+                                  className="text-zinc-700 hover:text-rose-400 opacity-0 group-hover/comment:opacity-100 transition-opacity"
+                                >
+                                  <Trash2 className="size-3" />
+                                </button>
+                              )}
+                            </div>
+                            <p className="text-sm text-zinc-300 whitespace-pre-line mt-0.5">{c.body}</p>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+
+                <div className="flex gap-2">
+                  <Input
+                    value={commentText}
+                    onChange={(e) => setCommentText(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") { e.preventDefault(); submitComment() }
+                    }}
+                    placeholder="Write a comment — press Enter"
+                    className="bg-zinc-900 border-zinc-800 text-zinc-100 text-sm"
+                  />
+                  <Button
+                    type="button"
+                    size="icon"
+                    disabled={sendingComment || !commentText.trim()}
+                    className="bg-indigo-600 hover:bg-indigo-500 text-white shrink-0"
+                    onClick={submitComment}
+                  >
+                    <Send className="size-4" />
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
 
           <DialogFooter className="flex-row justify-between sm:justify-between gap-2">
